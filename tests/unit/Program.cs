@@ -68,8 +68,16 @@ Check(defaults.Groups[1].Rules[0] == new Rule(Room.RestSite, Segment.WholeAct, P
 Check(Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json)).Groups[1].Rules.SequenceEqual(defaults.Groups[1].Rules), "priority settings roundtrip");
 var legacy = Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json).Replace("\"Enabled\": true", "\"Name\": \"Old label\", \"Enabled\": true"));
 Check(legacy.Groups[0].Rules.SequenceEqual(defaults.Groups[0].Rules) && !JsonSerializer.Serialize(legacy, Settings.Json).Contains("Name", StringComparison.Ordinal), "existing named configurations retain priorities and drop their labels");
+var previousPalette = Settings.Defaults();
+previousPalette.Version = 1;
+previousPalette.Groups[2].Enabled = true;
+previousPalette.Groups[2].Rules.Add(new Rule(Room.Shop, Segment.WholeAct, Preference.Most));
+var reordered = Settings.Parse(JsonSerializer.Serialize(previousPalette, Settings.Json));
+Check(reordered.Version == 2 && reordered.Groups[4].Enabled && reordered.Groups[4].Rules.SequenceEqual(previousPalette.Groups[2].Rules) && !reordered.Groups[2].Enabled,
+    "palette correction preserves existing blue and orange priorities");
+Check(Settings.Parse(JsonSerializer.Serialize(reordered, Settings.Json)).Groups[4].Enabled, "palette migration runs only once");
 Reject(() => Settings.Parse("{}"), "reject malformed settings");
-Reject(() => Settings.Parse("{\"Version\":2}"), "reject unknown settings version");
+Reject(() => Settings.Parse("{\"Version\":3}"), "reject unknown settings version");
 Reject(() => Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json).Replace("Most", "NoSuchPreference")), "reject unknown rules");
 var graph = new Dictionary<int, MapNode>
 {

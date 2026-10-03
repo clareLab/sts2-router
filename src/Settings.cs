@@ -18,7 +18,7 @@ internal sealed class Settings
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public int Version { get; set; } = 1;
+    public int Version { get; set; } = 2;
     public List<RouteGroup> Groups { get; set; } = [];
 
     internal static Settings Defaults() => new()
@@ -48,13 +48,18 @@ internal sealed class Settings
     internal static Settings Parse(string text)
     {
         var settings = JsonSerializer.Deserialize<Settings>(text, Json) ?? throw new JsonException("Empty settings.");
-        if (settings.Version != 1 || settings.Groups == null || settings.Groups.Count != 5)
+        if (settings.Version is not (1 or 2) || settings.Groups == null || settings.Groups.Count != 5)
             throw new JsonException("Unsupported settings.");
         foreach (var group in settings.Groups)
         {
             if (group == null || group.Rules == null || group.Rules.Count > MaxRules ||
                 group.Rules.Any(rule => rule == null || !Enum.IsDefined(rule.Room) || !Enum.IsDefined(rule.Segment) || !Enum.IsDefined(rule.Preference)))
                 throw new JsonException("Invalid route priorities.");
+        }
+        if (settings.Version == 1)
+        {
+            (settings.Groups[2], settings.Groups[4]) = (settings.Groups[4], settings.Groups[2]);
+            settings.Version = 2;
         }
         return settings;
     }

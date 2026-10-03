@@ -1,6 +1,5 @@
 using Godot;
 using MegaCrit.Sts2.Core.Models;
-using MegaCrit.Sts2.Core.Models.Characters;
 
 namespace router;
 
@@ -8,14 +7,15 @@ internal static class Ui
 {
     private static Theme? _theme;
     internal static Theme Theme => _theme ??= CreateTheme();
-    internal static readonly Color[] RouteColors =
-    [
-        ModelDb.Character<Ironclad>().MapDrawingColor,
-        ModelDb.Character<Silent>().MapDrawingColor,
-        ModelDb.Character<Defect>().MapDrawingColor,
-        ModelDb.Character<Necrobinder>().MapDrawingColor,
-        ModelDb.Character<Regent>().MapDrawingColor
-    ];
+    internal const int ControlSize = 36;
+    internal const int Gap = 6;
+    internal const int ContentInset = 8;
+    internal const int RoomWidth = 56;
+    internal const int SegmentWidth = 152;
+    internal const int PreferenceWidth = 104;
+    internal const int EditorWidth = 488;
+    internal static readonly CharacterModel[] Characters = ModelDb.AllCharacters.ToArray();
+    internal static readonly Color[] RouteColors = Characters.Select(character => character.MapDrawingColor).ToArray();
     internal const string SettingsIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres";
     internal const string CloseIcon = "res://images/atlases/compressed.sprites/back_button_x.tres";
 
@@ -28,7 +28,7 @@ internal static class Ui
         MouseFilter = Control.MouseFilterEnum.Ignore
     };
 
-    internal static StyleBoxFlat Surface(string background, string border, int padding = 6) => new()
+    internal static StyleBoxFlat Surface(string background, string border, int padding = ContentInset) => new()
     {
         BgColor = new Color(background),
         BorderColor = new Color(border),
@@ -47,6 +47,14 @@ internal static class Ui
         ContentMarginBottom = padding
     };
 
+    internal static StyleBoxFlat ButtonSurface(string background, string border)
+    {
+        var style = Surface(background, border);
+        style.ContentMarginTop = 4;
+        style.ContentMarginBottom = 4;
+        return style;
+    }
+
     internal static Texture2D? Texture(string path)
     {
         if (!ResourceLoader.Exists(path)) return null;
@@ -54,34 +62,66 @@ internal static class Ui
         return texture is AtlasTexture atlas ? new AtlasTexture { Atlas = atlas.Atlas, Region = atlas.Region, FilterClip = true } : texture;
     }
 
-    internal static Button Button(string text, string name, Action action, float width = 40)
+    internal static Button Button(string text, string name, Action action, float width = ControlSize)
     {
         var button = new Button
         {
             Name = name,
             Text = text,
             Theme = Theme,
-            CustomMinimumSize = new Vector2(width, 38),
+            CustomMinimumSize = new Vector2(width, ControlSize),
             MouseDefaultCursorShape = Control.CursorShape.PointingHand
         };
         button.Pressed += action;
         return button;
     }
 
-    internal static Button Icon(string path, string tooltip, string name, Action action)
+    internal static Button Icon(string path, string tooltip, string name, Action action, float rotation = 0) =>
+        Icon(Texture(path), tooltip, name, action, rotation);
+
+    internal static Button Icon(Texture2D? texture, string tooltip, string name, Action action, float rotation = 0)
     {
         var button = Button("", name, action);
         button.TooltipText = tooltip;
         var icon = new TextureRect
         {
-            Texture = Texture(path),
+            Name = "Icon",
+            Texture = texture,
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-            MouseFilter = Control.MouseFilterEnum.Ignore
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            Rotation = rotation
         };
         button.AddChild(icon);
-        icon.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, margin: 9);
+        icon.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, margin: ContentInset);
+        icon.Resized += () => icon.PivotOffset = icon.Size * 0.5f;
         return button;
+    }
+
+    internal static void Disable(Button button, bool disabled)
+    {
+        button.Disabled = disabled;
+        button.GetNode<TextureRect>("Icon").Modulate = new Color(1, 1, 1, disabled ? 0.3f : 1);
+    }
+
+    internal static Texture2D? RoomIcon(Room room) => Texture("res://images/atlases/ui_atlas.sprites/map/icons/map_" + (room switch
+    {
+        Room.Monster => "monster",
+        Room.Elite => "elite",
+        Room.RestSite => "rest",
+        Room.Shop => "shop",
+        Room.Treasure => "chest",
+        _ => "unknown"
+    }) + ".tres");
+
+    internal static Control Heading(string text, int width)
+    {
+        var margin = new MarginContainer { Name = text + "Heading", CustomMinimumSize = new Vector2(width, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
+        margin.AddThemeConstantOverride("margin_left", ContentInset);
+        var label = Text(text, 18);
+        label.Name = "Text";
+        margin.AddChild(label);
+        return margin;
     }
 
     internal static MarginContainer Padding(Control parent, int padding)
@@ -103,7 +143,7 @@ internal static class Ui
     private static Theme CreateTheme()
     {
         var theme = new Theme { DefaultFontSize = 20, DefaultFont = GD.Load<Font>("res://themes/kreon_regular_shared.tres") };
-        var panel = Surface("1b2b35", "83918d");
+        var panel = Surface("1b2b35", "83918d", 6);
         panel.ShadowColor = new Color("0b141c80");
         panel.ShadowSize = 3;
         panel.ShadowOffset = new Vector2(0, 2);
@@ -113,12 +153,12 @@ internal static class Ui
         theme.SetConstant("v_separation", "PopupMenu", 12);
         foreach (string type in new[] { "Button", "OptionButton" })
         {
-            theme.SetStylebox("normal", type, Surface("2e4351", "526c75"));
-            theme.SetStylebox("hover", type, Surface("526575", "f2d68d"));
-            theme.SetStylebox("pressed", type, Surface("15232d", "d1ac60"));
-            theme.SetStylebox("hover_pressed", type, Surface("526575", "fff2cd"));
-            theme.SetStylebox("disabled", type, Surface("23323a", "3c4c53"));
-            theme.SetStylebox("focus", type, Surface("00000000", "f2d68d"));
+            theme.SetStylebox("normal", type, ButtonSurface("2e4351", "526c75"));
+            theme.SetStylebox("hover", type, ButtonSurface("526575", "f2d68d"));
+            theme.SetStylebox("pressed", type, ButtonSurface("15232d", "d1ac60"));
+            theme.SetStylebox("hover_pressed", type, ButtonSurface("526575", "fff2cd"));
+            theme.SetStylebox("disabled", type, ButtonSurface("23323a", "3c4c53"));
+            theme.SetStylebox("focus", type, ButtonSurface("00000000", "f2d68d"));
             theme.SetColor("font_color", type, new Color("eee5cf"));
             theme.SetColor("font_hover_color", type, new Color("fff2cd"));
             theme.SetColor("font_pressed_color", type, new Color("f2d68d"));

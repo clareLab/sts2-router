@@ -79,6 +79,17 @@ internal static class SelfTests
             await Frames(4);
             Check(router.Editor.GetGlobalRect().End.Y <= router.Size.Y && router.Editor.GetGlobalRect().End.X <= router.Size.X, "editor fits in the viewport");
             CheckLayout(router);
+            Check(!Descendants(router.Editor).OfType<Button>().Any(b => b.Name == "Close" || b.Name.ToString().StartsWith("Group", StringComparison.Ordinal)), "editor has no duplicate palette or close button");
+            Check(Ui.Characters.Select(c => c.Id.Entry).SequenceEqual(new[] { "IRONCLAD", "SILENT", "REGENT", "NECROBINDER", "DEFECT" }), "colours follow the native character order");
+            var root = ((SceneTree)Engine.GetMainLoop()).Root;
+            var outside = new Vector2(router.Size.X - 40, router.Size.Y - 160);
+            foreach (bool pressed in new[] { true, false }) root.PushInput(new InputEventMouseButton { Position = outside, GlobalPosition = outside, ButtonIndex = MouseButton.Left, Pressed = pressed }, true);
+            await Frames(3);
+            Check(router.Editor.Visible, "clicking outside keeps priorities open");
+            await Click(edit);
+            Check(!router.Editor.Visible && !edit.ButtonPressed, "settings button closes the editor");
+            await Click(edit);
+            Check(router.Editor.Visible && edit.ButtonPressed, "settings button reopens the editor");
             await Screenshot("editor");
             var first = router.Configuration.Groups[0].Rules[0];
             var down = router.Editor.FindChild("Rule0", true, false)!.GetNode<Button>("Down");
@@ -95,8 +106,12 @@ internal static class SelfTests
             Check(router.Configuration.Groups[0].Rules[0].Segment == Segment.AfterChest, "scope edit updates the plan");
             option.Select(0);
             option.EmitSignal(OptionButton.SignalName.ItemSelected, 0L);
-            var third = Descendants(router.Editor).OfType<Button>().Single(b => b.Name == "Group2");
+            var third = Descendants(router).OfType<Button>().Single(b => b.Name == "Toggle2");
             await Click(third);
+            Check(!router.Configuration.Groups[2].Enabled, "choosing a colour while editing leaves its visibility unchanged");
+            await Click(Descendants(router.Editor).OfType<Button>().Single(b => b.Name == "Enabled"));
+            Check(router.Configuration.Groups[2].Enabled, "route visibility remains editable");
+            await Click(Descendants(router.Editor).OfType<Button>().Single(b => b.Name == "Enabled"));
             await Click(Descendants(router.Editor).OfType<Button>().Single(b => b.Name == "AddPriority"));
             Check(router.Configuration.Groups[2].Rules.Count == 1, "empty group accepts a new priority");
             await Click(router.Editor.FindChild("Rule0", true, false)!.GetNode<Button>("Remove"));
@@ -186,12 +201,22 @@ internal static class SelfTests
     {
         var rows = Descendants(router.Editor).OfType<HBoxContainer>().Where(r => r.Name.ToString().StartsWith("Rule", StringComparison.Ordinal)).ToArray();
         Check(rows.Length == 4, "all preset priorities visible");
+        var toolbar = router.GetNode<PanelContainer>("Toolbar");
+        var toolbarButtons = Descendants(toolbar).OfType<Button>().ToArray();
+        Check(toolbarButtons.All(b => b.Size.IsEqualApprox(new Vector2(Ui.ControlSize, Ui.ControlSize))), "toolbar buttons use equal square bounds");
+        Check(Math.Abs(toolbarButtons[0].GlobalPosition.X - rows[0].GlobalPosition.X) < 1, "toolbar and editor share the same left inset");
         foreach (var row in rows)
         {
             var children = row.GetChildren().OfType<Control>().ToArray();
             Check(children.Zip(children.Skip(1), (a, b) => a.GetGlobalRect().End.X <= b.GetGlobalRect().Position.X + 1).All(v => v), row.Name + " columns do not overlap");
+            Check(children.All(c => Math.Abs(c.Size.Y - Ui.ControlSize) < 1), row.Name + " controls share one height");
+            var room = row.GetNode<OptionButton>("Room");
+            Check(room.Icon != null && room.Text.Length == 0, row.Name + " uses a native room icon");
             foreach (var option in children.OfType<OptionButton>())
             {
+                var heading = router.Editor.FindChild(option.Name + "Heading", true, false)!.GetNode<Label>("Text");
+                float contentLeft = option.GlobalPosition.X + option.GetThemeStylebox("normal").ContentMarginLeft * router.Editor.Scale.X;
+                Check(Math.Abs(heading.GlobalPosition.X - contentLeft) < 1, row.Name + " " + option.Name + " heading aligns with its content");
                 float width = option.GetThemeFont("font").GetStringSize(option.Text, fontSize: option.GetThemeFontSize("font_size")).X;
                 Check(width + 22 < option.Size.X, row.Name + " " + option.Name + " label fits");
             }
