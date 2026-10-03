@@ -39,6 +39,7 @@ internal static class SelfTests
             await Frames(3);
             SaveManager.Instance.SetFtuesEnabled(false);
             SaveManager.Instance.PrefsSave.FastMode = FastModeType.Instant;
+            SaveManager.Instance.Progress.GetOrCreateCharacterStats(ModelDb.Character<Ironclad>().Id).TotalLosses = 2;
             var run = await NGame.Instance!.StartNewSingleplayerRun(ModelDb.Character<Ironclad>(), true,
                 ActModel.GetDefaultList(), [], "ROUTER-PREVIEW-001", GameMode.Standard, 10);
             await RunManager.Instance.EnterMapCoord(run.Map.StartingMapPoint.coord);
@@ -89,7 +90,8 @@ internal static class SelfTests
             Check(router.Editor.Visible, "clicking outside keeps priorities open");
             await Click(edit);
             Check(!router.Editor.Visible && !edit.ButtonPressed, "settings button closes the editor");
-            Check(!router.GetNode<Control>("EditorActions").Visible, "editor actions hide with the editor");
+            Check(!router.EditorActions.Visible, "editor actions hide with the editor");
+            Check(router.GetNode<Control>("Toolbar").Size.X < Ui.EditorWidth, "toolbar contracts when settings close");
             await Click(edit);
             Check(router.Editor.Visible && edit.ButtonPressed, "settings button reopens the editor");
             await Screenshot("editor");
@@ -133,7 +135,7 @@ internal static class SelfTests
             screen.Close(false);
             await Frames(3);
             Check(!router.IsVisibleInTree(), "overlay hides with the map");
-            Check(!router.GetNode<Control>("Toolbar").Visible && !router.GetNode<Control>("EditorActions").Visible, "all router controls hide outside the map");
+            Check(!router.GetNode<Control>("Toolbar").Visible && !router.EditorActions.Visible, "all router controls hide outside the map");
             screen.Open(true);
             await Frames(3);
             screen.IsTraveling = true;
@@ -223,15 +225,14 @@ internal static class SelfTests
         Check(toolbarButtons.All(b => b.Size.IsEqualApprox(new Vector2(Ui.ControlSize, Ui.ControlSize))), "toolbar buttons use equal square bounds");
         Check(toolbar.Size.Y == 52, "toolbar matches the SLPP height");
         Check(router.Editor.Size.X == Ui.EditorWidth && router.Editor.Size.X < 400, "settings use a compact fixed width");
-        var actions = router.GetNode<Control>("EditorActions");
-        Check(actions.Position.Y == toolbar.Position.Y && actions.Size.Y == toolbar.Size.Y, "editor actions align with the toolbar");
-        Check(Math.Abs(actions.GetGlobalRect().End.X - router.Editor.GetGlobalRect().End.X) < 1, "editor actions align with the panel right edge");
-        Check(Math.Abs(actions.Position.X - toolbar.GetRect().End.X - Ui.Gap) < 1, "editor actions sit beside the toolbar");
+        Check(toolbar.Size.X == router.Editor.Size.X, "expanded toolbar and settings share one width");
+        Check(toolbarButtons.All(b => Math.Abs(b.GlobalPosition.Y - toolbarButtons[0].GlobalPosition.Y) < 1), "editor actions align with the toolbar buttons");
         var companion = ((SceneTree)Engine.GetMainLoop()).Root.GetNodeOrNull<Control>("slpp/SlppToolbar");
         if (companion != null)
         {
             Check(companion.IsVisibleInTree(), "SLPP is visible in the shared map preview");
             Check(companion.Size.Y == toolbar.Size.Y, "both loaded mods share the same toolbar height");
+            Check(companion.Size.X == toolbar.Size.X, "both loaded mods share the same expanded toolbar width");
             Check(companion.GlobalPosition.X == toolbar.GlobalPosition.X && companion.GetGlobalRect().End.Y + 8 == toolbar.GlobalPosition.Y, "both loaded toolbars align without overlap");
         }
         Check(Math.Abs(toolbarButtons[0].GlobalPosition.X - rows[0].GlobalPosition.X) < 1, "toolbar and editor share the same left inset");

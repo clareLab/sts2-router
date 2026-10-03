@@ -11,7 +11,7 @@ internal static class Ui
     internal const int Gap = 4;
     internal const int ContentInset = 6;
     internal const int ChoiceWidth = 64;
-    internal const int EditorWidth = 372;
+    internal const int EditorWidth = 368;
     internal static readonly CharacterModel[] Characters = ModelDb.AllCharacters.ToArray();
     internal static readonly Color[] RouteColors = [new("bd4746"), new("507b46"), new("ac772e"), new("965689"), new("447f9d")];
     internal const string SettingsIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres";
@@ -121,8 +121,9 @@ internal static class Ui
         var row = new HBoxContainer { Name = "Glyph", Alignment = BoxContainer.AlignmentMode.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
         row.AddThemeConstantOverride("separation", 2);
         button.AddChild(row);
-        row.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, margin: ContentInset);
-        row.OffsetRight = -18;
+        row.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, margin: 4);
+        row.OffsetLeft = ContentInset;
+        row.OffsetRight = -16;
         void Add(Texture2D? image, int size, bool flipVertical = false)
         {
             var icon = new TextureRect
@@ -137,9 +138,9 @@ internal static class Ui
             };
             row.AddChild(icon);
         }
-        if (direction < 0) Add(Texture(LeftIcon), 10);
-        Add(texture, direction == 0 ? 26 : 22, flip);
-        if (direction > 0) Add(Texture(RightIcon), 10);
+        if (direction < 0) Add(Texture(LeftIcon), 14);
+        Add(texture, direction == 0 ? 32 : 28, flip);
+        if (direction > 0) Add(Texture(RightIcon), 14);
     }
 
     internal static MarginContainer Padding(Control parent, int padding)

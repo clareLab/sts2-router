@@ -14,7 +14,7 @@ internal partial class RouterControl : Control
     private Settings _settings = Settings.Defaults();
     private PanelContainer _toolbar = null!;
     private PanelContainer _editor = null!;
-    private PanelContainer _actions = null!;
+    private MarginContainer _actions = null!;
     private HBoxContainer _actionButtons = null!;
     private Button _editButton = null!;
     private VBoxContainer _editorContent = null!;
@@ -33,6 +33,7 @@ internal partial class RouterControl : Control
     internal int CompletedPlans { get; private set; }
     internal Settings Configuration => _settings;
     internal PanelContainer Editor => _editor;
+    internal Control EditorActions => _actions;
 
     internal void Initialize()
     {
@@ -52,11 +53,6 @@ internal partial class RouterControl : Control
                 GD.PrintErr("[router] Using default priorities: " + error.Message);
             }
             BuildToolbar();
-            _actions = new PanelContainer { Name = "EditorActions", Theme = Ui.Theme, Visible = false };
-            AddChild(_actions);
-            _actionButtons = new HBoxContainer();
-            _actionButtons.AddThemeConstantOverride("separation", Ui.Gap);
-            Ui.Padding(_actions, 4).AddChild(_actionButtons);
             _editor = new PanelContainer { Name = "Editor", Theme = Ui.Theme, Visible = false, CustomMinimumSize = new Vector2(Ui.EditorWidth, 0) };
             AddChild(_editor);
             _editor.VisibilityChanged += UpdateSwatches;
@@ -104,9 +100,8 @@ internal partial class RouterControl : Control
             var size = Size;
             float scale = Math.Min(1, Math.Max(0.1f, (size.X - 32) / Ui.EditorWidth));
             _toolbar.Position = new Vector2(16, 148);
+            _toolbar.Size = _toolbar.GetCombinedMinimumSize();
             _toolbar.Scale = new Vector2(scale, scale);
-            _actions.Scale = new Vector2(scale, scale);
-            _actions.Position = _toolbar.Position + new Vector2((_toolbar.Size.X + Ui.Gap) * scale, 0);
             _editor.Scale = new Vector2(scale, scale);
             _editor.Position = _toolbar.Position + new Vector2(0, (_toolbar.Size.Y + 6) * scale);
         }
@@ -200,6 +195,12 @@ internal partial class RouterControl : Control
         _editButton = Ui.Icon(Ui.SettingsIcon, "Edit priorities", "Edit", () => _editor.Visible = !_editor.Visible);
         _editButton.ToggleMode = true;
         row.AddChild(_editButton);
+        _actions = new MarginContainer { Name = "EditorActions", Visible = false };
+        _actions.AddThemeConstantOverride("margin_left", 8);
+        row.AddChild(_actions);
+        _actionButtons = new HBoxContainer();
+        _actionButtons.AddThemeConstantOverride("separation", Ui.Gap);
+        _actions.AddChild(_actionButtons);
     }
 
     private static Button GroupButton(int index, string name, Action action)
@@ -270,13 +271,13 @@ internal partial class RouterControl : Control
         row.AddChild(Select("Prefer", ["Most", "Fewest", "At least one", "None"], (int)rule.Preference,
             value => { group.Rules[index] = group.Rules[index] with { Preference = (Preference)value }; Changed(); },
             (button, value) => Ui.ChoiceGlyph(button, Ui.Texture(value < 2 ? Ui.SortIcon : value == 2 ? Ui.CheckIcon : Ui.CloseIcon), flip: value == 1)));
-        var up = Ui.Icon(Ui.LeftIcon, "Move up", "Up", () => Move(group, index, -1), Mathf.Pi / 2, padding: 12);
+        var up = Ui.Icon(Ui.LeftIcon, "Move up", "Up", () => Move(group, index, -1), Mathf.Pi / 2, padding: 8);
         Ui.Disable(up, index == 0);
         row.AddChild(up);
-        var down = Ui.Icon(Ui.RightIcon, "Move down", "Down", () => Move(group, index, 1), Mathf.Pi / 2, padding: 12);
+        var down = Ui.Icon(Ui.RightIcon, "Move down", "Down", () => Move(group, index, 1), Mathf.Pi / 2, padding: 8);
         Ui.Disable(down, index == group.Rules.Count - 1);
         row.AddChild(down);
-        var remove = Ui.Icon(Ui.CloseIcon, "Remove priority", "Remove", () => { group.Rules.RemoveAt(index); Changed(); BuildEditor(); }, padding: 10);
+        var remove = Ui.Icon(Ui.CloseIcon, "Remove priority", "Remove", () => { group.Rules.RemoveAt(index); Changed(); BuildEditor(); }, padding: 8);
         row.AddChild(remove);
         return row;
     }
