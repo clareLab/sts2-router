@@ -73,11 +73,35 @@ previousPalette.Version = 1;
 previousPalette.Groups[2].Enabled = true;
 previousPalette.Groups[2].Rules.Add(new Rule(Room.Shop, Segment.WholeAct, Preference.Most));
 var reordered = Settings.Parse(JsonSerializer.Serialize(previousPalette, Settings.Json));
-Check(reordered.Version == 2 && reordered.Groups[4].Enabled && reordered.Groups[4].Rules.SequenceEqual(previousPalette.Groups[2].Rules) && !reordered.Groups[2].Enabled,
+Check(reordered.Version == 3 && reordered.Groups[4].Enabled && reordered.Groups[4].Rules.SequenceEqual(previousPalette.Groups[2].Rules) && !reordered.Groups[2].Enabled,
     "palette correction preserves existing blue and orange priorities");
 Check(Settings.Parse(JsonSerializer.Serialize(reordered, Settings.Json)).Groups[4].Enabled, "palette migration runs only once");
+var previousPresets = Settings.Defaults();
+previousPresets.Version = 2;
+previousPresets.Groups[0].Enabled = false;
+previousPresets.Groups[0].Rules =
+[
+    new(Room.Elite, Segment.WholeAct, Preference.Most), new(Room.RestSite, Segment.AfterChest, Preference.Most),
+    new(Room.Shop, Segment.AfterChest, Preference.Present), new(Room.Unknown, Segment.WholeAct, Preference.Most)
+];
+previousPresets.Groups[1].Rules =
+[
+    new(Room.RestSite, Segment.WholeAct, Preference.Most), new(Room.Elite, Segment.BeforeChest, Preference.Absent),
+    new(Room.Shop, Segment.AfterChest, Preference.Present), new(Room.Unknown, Segment.WholeAct, Preference.Most)
+];
+var updatedPresets = Settings.Parse(JsonSerializer.Serialize(previousPresets, Settings.Json));
+Check(updatedPresets.Version == 3 && !updatedPresets.Groups[0].Enabled &&
+    updatedPresets.Groups.Take(2).Select((group, i) => group.Rules.SequenceEqual(defaults.Groups[i].Rules)).All(match => match),
+    "existing presets upgrade without changing visibility");
+previousPresets.Groups[1].Rules.Reverse();
+var customPresets = Settings.Parse(JsonSerializer.Serialize(previousPresets, Settings.Json));
+Check(customPresets.Groups[0].Rules.SequenceEqual(defaults.Groups[0].Rules) && customPresets.Groups[1].Rules.SequenceEqual(previousPresets.Groups[1].Rules),
+    "preset updates preserve customised priorities in other groups");
+updatedPresets.Groups[0].Rules = previousPresets.Groups[0].Rules;
+Check(Settings.Parse(JsonSerializer.Serialize(updatedPresets, Settings.Json)).Groups[0].Rules.SequenceEqual(previousPresets.Groups[0].Rules),
+    "new settings can deliberately recreate a previous preset");
 Reject(() => Settings.Parse("{}"), "reject malformed settings");
-Reject(() => Settings.Parse("{\"Version\":3}"), "reject unknown settings version");
+Reject(() => Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json).Replace("\"Version\": 3", "\"Version\": 4")), "reject unknown settings version");
 Reject(() => Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json).Replace("Most", "NoSuchPreference")), "reject unknown rules");
 var graph = new Dictionary<int, MapNode>
 {

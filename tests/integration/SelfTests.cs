@@ -219,7 +219,7 @@ internal static class SelfTests
     private static void CheckLayout(RouterControl router)
     {
         var rows = Descendants(router.Editor).OfType<HBoxContainer>().Where(r => r.Name.ToString().StartsWith("Rule", StringComparison.Ordinal)).ToArray();
-        Check(rows.Length == 4, "all preset priorities visible");
+        Check(rows.Length == router.Configuration.Groups[0].Rules.Count, "all preset priorities visible");
         var toolbar = router.GetNode<PanelContainer>("Toolbar");
         var toolbarButtons = Descendants(toolbar).OfType<Button>().ToArray();
         Check(toolbarButtons.All(b => b.Size.IsEqualApprox(new Vector2(Ui.ControlSize, Ui.ControlSize))), "toolbar buttons use equal square bounds");

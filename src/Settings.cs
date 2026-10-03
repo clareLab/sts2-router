@@ -18,7 +18,7 @@ internal sealed class Settings
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
     public List<RouteGroup> Groups { get; set; } = [];
 
     internal static Settings Defaults() => new()
@@ -28,15 +28,17 @@ internal sealed class Settings
             new() { Enabled = true, Rules =
             [
                 new(Room.Elite, Segment.WholeAct, Preference.Most),
-                new(Room.RestSite, Segment.AfterChest, Preference.Most),
-                new(Room.Shop, Segment.AfterChest, Preference.Present),
+                new(Room.Elite, Segment.AfterChest, Preference.Most),
+                new(Room.RestSite, Segment.WholeAct, Preference.Most),
+                new(Room.Shop, Segment.WholeAct, Preference.Most),
                 new(Room.Unknown, Segment.WholeAct, Preference.Most)
             ] },
             new() { Enabled = true, Rules =
             [
                 new(Room.RestSite, Segment.WholeAct, Preference.Most),
-                new(Room.Elite, Segment.BeforeChest, Preference.Absent),
-                new(Room.Shop, Segment.AfterChest, Preference.Present),
+                new(Room.RestSite, Segment.BeforeChest, Preference.Most),
+                new(Room.Shop, Segment.AfterChest, Preference.Most),
+                new(Room.Elite, Segment.AfterChest, Preference.Most),
                 new(Room.Unknown, Segment.WholeAct, Preference.Most)
             ] },
             new(),
@@ -48,7 +50,7 @@ internal sealed class Settings
     internal static Settings Parse(string text)
     {
         var settings = JsonSerializer.Deserialize<Settings>(text, Json) ?? throw new JsonException("Empty settings.");
-        if (settings.Version is not (1 or 2) || settings.Groups == null || settings.Groups.Count != 5)
+        if (settings.Version is not (1 or 2 or 3) || settings.Groups == null || settings.Groups.Count != 5)
             throw new JsonException("Unsupported settings.");
         foreach (var group in settings.Groups)
         {
@@ -57,9 +59,20 @@ internal sealed class Settings
                 throw new JsonException("Invalid route priorities.");
         }
         if (settings.Version == 1)
-        {
             (settings.Groups[2], settings.Groups[4]) = (settings.Groups[4], settings.Groups[2]);
-            settings.Version = 2;
+        if (settings.Version < 3)
+        {
+            Rule[][] previous =
+            [
+                [new(Room.Elite, Segment.WholeAct, Preference.Most), new(Room.RestSite, Segment.AfterChest, Preference.Most),
+                    new(Room.Shop, Segment.AfterChest, Preference.Present), new(Room.Unknown, Segment.WholeAct, Preference.Most)],
+                [new(Room.RestSite, Segment.WholeAct, Preference.Most), new(Room.Elite, Segment.BeforeChest, Preference.Absent),
+                    new(Room.Shop, Segment.AfterChest, Preference.Present), new(Room.Unknown, Segment.WholeAct, Preference.Most)]
+            ];
+            var defaults = Defaults();
+            for (int i = 0; i < previous.Length; i++)
+                if (settings.Groups[i].Rules.SequenceEqual(previous[i])) settings.Groups[i].Rules = defaults.Groups[i].Rules;
+            settings.Version = 3;
         }
         return settings;
     }
