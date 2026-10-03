@@ -111,7 +111,7 @@ internal static class Ui
         theme.SetStylebox("panel", "PopupMenu", Surface("1b2b35", "83918d", 8));
         theme.SetStylebox("hover", "PopupMenu", Surface("526575", "f2d68d", 6));
         theme.SetConstant("v_separation", "PopupMenu", 12);
-        foreach (string type in new[] { "Button", "OptionButton", "LineEdit" })
+        foreach (string type in new[] { "Button", "OptionButton" })
         {
             theme.SetStylebox("normal", type, Surface("2e4351", "526c75"));
             theme.SetStylebox("hover", type, Surface("526575", "f2d68d"));

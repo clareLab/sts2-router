@@ -66,6 +66,8 @@ Check(defaults.Groups.Count == 5 && defaults.Groups.Count(g => g.Enabled) == 2, 
 Check(defaults.Groups[0].Rules[0] == new Rule(Room.Elite, Segment.WholeAct, Preference.Most), "aggressive first");
 Check(defaults.Groups[1].Rules[0] == new Rule(Room.RestSite, Segment.WholeAct, Preference.Most), "steady second");
 Check(Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json)).Groups[1].Rules.SequenceEqual(defaults.Groups[1].Rules), "priority settings roundtrip");
+var legacy = Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json).Replace("\"Enabled\": true", "\"Name\": \"Old label\", \"Enabled\": true"));
+Check(legacy.Groups[0].Rules.SequenceEqual(defaults.Groups[0].Rules) && !JsonSerializer.Serialize(legacy, Settings.Json).Contains("Name", StringComparison.Ordinal), "existing named configurations retain priorities and drop their labels");
 Reject(() => Settings.Parse("{}"), "reject malformed settings");
 Reject(() => Settings.Parse("{\"Version\":2}"), "reject unknown settings version");
 Reject(() => Settings.Parse(JsonSerializer.Serialize(defaults, Settings.Json).Replace("Most", "NoSuchPreference")), "reject unknown rules");

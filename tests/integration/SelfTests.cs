@@ -44,31 +44,28 @@ internal static class SelfTests
             var screen = NMapScreen.Instance!;
             screen.Open(true);
             var tree = (SceneTree)Engine.GetMainLoop();
-            await tree.ToSignal(tree.CreateTimer(3), SceneTreeTimer.SignalName.Timeout);
+            await tree.ToSignal(tree.CreateTimer(5), SceneTreeTimer.SignalName.Timeout);
             var router = screen.GetNode<RouterControl>("Router");
             Check(router.GetNodeOrNull<Control>("Toolbar") != null, "map controls initialise");
             await Planned(router, 0);
             Check(router.IsVisibleInTree(), "overlay attaches to the native map");
             Check(router.Configuration.Groups.Count(g => g.Enabled) == 2, "two presets enabled");
             var before = Graph(run.Map);
-            var snapshot = MapSnapshot.Capture(screen, run);
+            var snapshot = MapSnapshot.Capture(run);
             Check(snapshot.Nodes.Count > 20 && snapshot.Starts.Length > 0, "native map graph captured");
-            var pointContainer = screen.GetNode<Control>("TheMap/Points");
-            var pointNodes = pointContainer.GetChildren().OfType<NMapPoint>().Where(p => !p.IsQueuedForDeletion()).ToArray();
-            for (int i = 0; i < pointNodes.Length; i++)
-            {
-                if (pointNodes[i] is not NNormalMapPoint normal) continue;
-                var icon = normal.GetNode<Control>("%Icon");
-                var centre = icon.GetGlobalTransform() * (icon.Size * 0.5f);
-                Check(centre.DistanceTo(pointContainer.GetGlobalTransform() * snapshot.Positions[i]) < 2, "route ring aligns with room icon " + i);
-            }
             foreach (var group in router.Configuration.Groups.Take(2))
             {
                 var plan = Planner.Solve(snapshot.Nodes, snapshot.Starts, snapshot.Goals, group.Rules, snapshot.AfterChest);
-                Check(plan.Nodes.Count >= 10 && plan.Edges.Count >= 9, group.Name + " reaches the boss");
+                Check(plan.Nodes.Count >= 10 && plan.Edges.Count >= 9, "preset reaches the boss");
             }
-            var ink = screen.GetNode<RouteInk>("TheMap/Points/RouterInk");
-            Check(ink.Visible && ink.GetIndex() == 0, "route colours render beneath native node icons");
+            Check(Descendants(router).OfType<Button>().Where(b => b.Name.ToString().StartsWith("Toggle", StringComparison.Ordinal)).All(b => b.Text.Length == 0), "route switches contain only colours");
+            Check(!Descendants(router).OfType<LineEdit>().Any(), "route names are removed");
+            screen.Close(false);
+            await Frames(3);
+            ValidateTint(screen, run, snapshot, router.Configuration.Groups[0].Rules);
+            int initialPlans = router.CompletedPlans;
+            screen.Open(true);
+            await Planned(router, initialPlans);
             await Screenshot("map");
             var toggle = Descendants(router).OfType<Button>().Single(b => b.Name == "Toggle0");
             int plans = router.CompletedPlans;
@@ -117,15 +114,15 @@ internal static class SelfTests
             var point = run.Map.GetAllMapPoints().First(p => p.PointType == MapPointType.Treasure);
             run.AddVisitedMapCoord(point.coord);
             await Planned(router, plans);
-            var moved = MapSnapshot.Capture(screen, run);
+            var moved = MapSnapshot.Capture(run);
             Check(moved.AfterChest && moved.Current != snapshot.Current, "room progress updates chest phase and origin");
             var future = Planner.Solve(moved.Nodes, moved.Starts, moved.Goals, router.Configuration.Groups[1].Rules, moved.AfterChest);
             Check(!future.Nodes.Contains(moved.Current!.Value), "current room is excluded from future scoring");
-            Check(future.Nodes.All(id => moved.Positions[id].Y < moved.Positions[moved.Current.Value].Y), "route contains only future rooms");
+            Check(future.Nodes.All(id => moved.Coordinates[id].row > moved.Coordinates[moved.Current.Value].row), "route contains only future rooms");
             plans = router.CompletedPlans;
             screen.SetMap(run.Map, run.Rng.Seed, false);
             await Planned(router, plans);
-            Check(screen.GetNode<Control>("TheMap/Points").GetChildren().OfType<RouteInk>().Count() == 1, "map rebuild replaces the overlay without duplication");
+            Check(screen.GetNode<Control>("TheMap/Points").GetChildren().All(node => node is NMapPoint || node.IsQueuedForDeletion()), "map rebuild keeps only native room nodes");
             for (int act = 1; act < run.Acts.Count; act++)
             {
                 plans = router.CompletedPlans;
@@ -133,7 +130,7 @@ internal static class SelfTests
                 screen.Open(true);
                 await Frames(4);
                 await Planned(router, plans);
-                var nextAct = MapSnapshot.Capture(screen, run);
+                var nextAct = MapSnapshot.Capture(run);
                 var route = Planner.Solve(nextAct.Nodes, nextAct.Starts, nextAct.Goals, router.Configuration.Groups[0].Rules, nextAct.AfterChest);
                 Check(!nextAct.AfterChest && route.Nodes.IsSupersetOf(nextAct.Goals), $"act {act + 1} starts afresh and reaches its final boss");
                 if (act == 2) Check(run.Map.SecondBossMapPoint != null && route.Nodes.Count(id => nextAct.Nodes[id].Room == Room.Boss) == 2, "A10 route includes both bosses");
@@ -151,6 +148,38 @@ internal static class SelfTests
             File.WriteAllText(ProjectSettings.GlobalizePath("user://router-selftest.json"), JsonSerializer.Serialize(new { success = error == null, passed = Passed, error }));
             ((SceneTree)Engine.GetMainLoop()).Quit(error == null ? 0 : 1);
         }
+    }
+
+    private static void ValidateTint(NMapScreen screen, RunState run, MapSnapshot map, IReadOnlyList<Rule> rules)
+    {
+        var paths = RouteTint.Paths(screen);
+        var native = paths.Values.SelectMany(path => path).Distinct().ToDictionary(tick => tick,
+            tick => (tick.Modulate, tick.Texture, Transform: tick.GetTransform(), tick.Size, tick.FlipH, tick.FlipV));
+        var plan = Planner.Solve(map.Nodes, map.Starts, map.Goals, rules, map.AfterChest);
+        var edges = plan.Edges.Select(edge => (map.Coordinates[edge.From], map.Coordinates[edge.To])).ToHashSet();
+        if (map.Current is { } current)
+            foreach (int start in map.Starts.Where(plan.Nodes.Contains)) edges.Add((map.Coordinates[current], map.Coordinates[start]));
+        var coloured = paths.Where(pair => edges.Contains(pair.Key)).SelectMany(pair => pair.Value).ToHashSet();
+        Check(coloured.Count > 0 && coloured.Count < native.Count, "route selects existing native path ticks");
+        var tint = new RouteTint();
+        tint.Apply(screen, map, [(0, plan)]);
+        Check(coloured.All(tick => tick.Modulate == new Color(Ui.RouteColors[0], native[tick].Modulate.A)), "selected native paths receive the route colour");
+        Check(native.Where(pair => !coloured.Contains(pair.Key)).All(pair => pair.Key.Modulate == pair.Value.Modulate), "unselected paths retain their original colour");
+        Check(native.All(pair => pair.Key.Texture == pair.Value.Texture && pair.Key.GetTransform() == pair.Value.Transform &&
+            pair.Key.Size == pair.Value.Size && pair.Key.FlipH == pair.Value.FlipH && pair.Key.FlipV == pair.Value.FlipV),
+            "colouring preserves native textures, thickness, spacing and transforms");
+        tint.Apply(screen, map, [(0, plan), (1, plan)]);
+        var a = Ui.RouteColors[0];
+        var b = Ui.RouteColors[1];
+        var mixed = new Color(Math.Min(1, a.R + b.R), Math.Min(1, a.G + b.G), Math.Min(1, a.B + b.B));
+        Check(coloured.All(tick => tick.Modulate == new Color(mixed, native[tick].Modulate.A)), "overlapping routes mix their native path colours");
+        var changed = coloured.First();
+        changed.Modulate = run.Act.MapTraveledColor;
+        tint.Clear();
+        Check(changed.Modulate == run.Act.MapTraveledColor, "clearing colours preserves a newer native travel animation");
+        changed.Modulate = native[changed].Modulate;
+        Check(native.All(pair => pair.Key.Modulate == pair.Value.Modulate), "clearing routes restores all original path colours");
+        Check(screen.GetNode<Control>("TheMap/Points").GetChildren().All(node => node is NMapPoint), "no extra node outlines or route geometry are added");
     }
 
     private static void CheckLayout(RouterControl router)

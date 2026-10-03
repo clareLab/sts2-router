@@ -9,7 +9,7 @@ namespace router;
 internal partial class RouterControl : Control
 {
     private NMapScreen _screen = null!;
-    private RouteInk? _ink;
+    private readonly RouteTint _tint = new();
     private Settings _settings = Settings.Defaults();
     private PanelContainer _toolbar = null!;
     private PanelContainer _editor = null!;
@@ -48,7 +48,7 @@ internal partial class RouterControl : Control
                 GD.PrintErr("[router] Using default priorities: " + error.Message);
             }
             BuildToolbar();
-            _editor = new PanelContainer { Name = "Editor", Theme = Ui.Theme, Visible = false, CustomMinimumSize = new Vector2(620, 0) };
+            _editor = new PanelContainer { Name = "Editor", Theme = Ui.Theme, Visible = false, CustomMinimumSize = new Vector2(544, 0) };
             AddChild(_editor);
             _editorContent = new VBoxContainer();
             _editorContent.AddThemeConstantOverride("separation", 12);
@@ -67,8 +67,7 @@ internal partial class RouterControl : Control
         {
             bool open = _screen.IsVisibleInTree() && _screen.IsOpen && !_screen.IsTraveling;
             _toolbar.Visible = open;
-            if (_ink != null && IsInstanceValid(_ink)) _ink.Visible = open;
-            if (!open) { _editor.Hide(); _wasOpen = false; return; }
+            if (!open) { _editor.Hide(); if (_wasOpen) _tint.Clear(); _wasOpen = false; return; }
             var run = RunManager.Instance.DebugOnlyGetState();
             if (run == null) return;
             if (!_wasOpen || !ReferenceEquals(_lastMap, run.Map) || !ReferenceEquals(_lastRun, run) || _lastCoord != run.CurrentMapCoord) _dirty = true;
@@ -86,15 +85,14 @@ internal partial class RouterControl : Control
                 _planning = null;
                 if (planning.IsCompletedSuccessfully)
                 {
-                    EnsureInk();
-                    _ink!.SetRoutes(_snapshot!, planning.Result);
+                    _tint.Apply(_screen, _snapshot!, planning.Result);
                     CompletedPlans++;
                 }
                 else if (planning.Exception is { } error) throw error.GetBaseException();
             }
             var size = Size;
             float available = Math.Max(1, size.X - 32);
-            float scale = Math.Min(1, Math.Min(available / 620, Math.Max(0.5f, (size.Y - 180) / 560)));
+            float scale = Math.Min(1, Math.Min(available / 544, Math.Max(0.5f, (size.Y - 180) / 560)));
             _toolbar.Position = new Vector2(24, 144);
             _editor.Scale = new Vector2(scale, scale);
             _editor.Position = _toolbar.Position + new Vector2(0, _toolbar.Size.Y + 8);
@@ -109,22 +107,12 @@ internal partial class RouterControl : Control
         _cancellation?.Dispose();
         _cancellation = new CancellationTokenSource();
         var token = _cancellation.Token;
-        var snapshot = MapSnapshot.Capture(_screen, run);
+        var snapshot = MapSnapshot.Capture(run);
         _snapshot = snapshot;
-        EnsureInk();
-        _ink!.SetRoutes(snapshot, []);
+        _tint.Clear();
         var groups = _settings.Groups.Select((group, index) => (index, group.Enabled, Rules: group.Rules.ToArray())).Where(group => group.Enabled && group.Rules.Length > 0).ToArray();
         _planning = Task.Run(() => groups.Select(group => (group.index,
             Planner.Solve(snapshot.Nodes, snapshot.Starts, snapshot.Goals, group.Rules, snapshot.AfterChest, token))).ToArray(), token);
-    }
-
-    private void EnsureInk()
-    {
-        if (_ink != null && IsInstanceValid(_ink) && !_ink.IsQueuedForDeletion()) return;
-        _ink = new RouteInk { Name = "RouterInk" };
-        var points = _screen.GetNode<Control>("TheMap/Points");
-        points.AddChild(_ink);
-        points.MoveChild(_ink, 0);
     }
 
     private void CleanUp()
@@ -133,14 +121,14 @@ internal partial class RouterControl : Control
         if (_screen != null && IsInstanceValid(_screen)) _screen.Opened -= Invalidate;
         _cancellation?.Cancel();
         _cancellation?.Dispose();
-        if (_ink != null && IsInstanceValid(_ink)) _ink.QueueFree();
+        _tint.Clear();
     }
 
     private void Fail(Exception error)
     {
         _failed = true;
         _cancellation?.Cancel();
-        if (_ink != null && IsInstanceValid(_ink)) _ink.Hide();
+        _tint.Clear();
         Hide();
         GD.PrintErr("[router] Map overlay disabled for this run: " + error.Message);
     }
@@ -151,7 +139,7 @@ internal partial class RouterControl : Control
         for (int i = 0; i < _toggles.Count; i++)
         {
             _toggles[i].SetPressedNoSignal(_settings.Groups[i].Enabled);
-            _toggles[i].TooltipText = _settings.Groups[i].Name;
+            _toggles[i].TooltipText = _settings.Groups[i].Enabled ? "Hide route" : "Show route";
         }
         try { _settings.Save(_path); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
@@ -168,10 +156,6 @@ internal partial class RouterControl : Control
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", 5);
         _toolbar.AddChild(row);
-        var title = Ui.Text("Router", 22);
-        title.CustomMinimumSize = new Vector2(76, 0);
-        title.HorizontalAlignment = HorizontalAlignment.Center;
-        row.AddChild(title);
         for (int i = 0; i < 5; i++)
         {
             int index = i;
@@ -183,7 +167,7 @@ internal partial class RouterControl : Control
             });
             button.ToggleMode = true;
             button.SetPressedNoSignal(_settings.Groups[i].Enabled);
-            button.TooltipText = _settings.Groups[i].Name;
+            button.TooltipText = _settings.Groups[i].Enabled ? "Hide route" : "Show route";
             row.AddChild(button);
             _toggles.Add(button);
         }
@@ -192,17 +176,12 @@ internal partial class RouterControl : Control
 
     private static Button GroupButton(int index, string name, Action action)
     {
-        var button = Ui.Button((index + 1).ToString(), name, action, 38);
-        var color = Ui.RouteColors[index].Lightened(0.18f);
-        var style = Ui.Surface("23323a", color.ToHtml());
-        style.BorderWidthBottom = 3;
-        button.AddThemeStyleboxOverride("normal", style);
-        var pressed = Ui.Surface(color.Darkened(0.42f).ToHtml(), color.Lightened(0.3f).ToHtml());
-        pressed.BorderWidthBottom = 3;
-        button.AddThemeStyleboxOverride("pressed", pressed);
-        button.AddThemeStyleboxOverride("hover_pressed", pressed);
-        button.AddThemeColorOverride("font_color", color.Lightened(0.6f));
-        button.AddThemeColorOverride("font_pressed_color", Colors.White);
+        var button = Ui.Button("", name, action, 38);
+        var color = Ui.RouteColors[index];
+        button.AddThemeStyleboxOverride("normal", Ui.Surface(color.Darkened(0.72f).ToHtml(), color.Darkened(0.25f).ToHtml()));
+        button.AddThemeStyleboxOverride("hover", Ui.Surface(color.Darkened(0.3f).ToHtml(), "f2d68d"));
+        button.AddThemeStyleboxOverride("pressed", Ui.Surface(color.ToHtml(), color.Lightened(0.55f).ToHtml()));
+        button.AddThemeStyleboxOverride("hover_pressed", Ui.Surface(color.Lightened(0.12f).ToHtml(), "fff2cd"));
         return button;
     }
 
@@ -219,25 +198,15 @@ internal partial class RouterControl : Control
             var tab = GroupButton(index, "Group" + i, () => { _selected = index; BuildEditor(); });
             tab.ToggleMode = true;
             tab.SetPressedNoSignal(i == _selected);
-            tab.TooltipText = _settings.Groups[i].Name;
+            tab.TooltipText = "Edit priorities";
             tabs.AddChild(tab);
         }
         tabs.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
         tabs.AddChild(Ui.Icon(Ui.CloseIcon, "Close", "Close", _editor.Hide));
-        var nameRow = new HBoxContainer();
-        nameRow.AddThemeConstantOverride("separation", 8);
-        _editorContent.AddChild(nameRow);
-        var name = new LineEdit { Name = "GroupName", Text = group.Name, MaxLength = 24, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-        name.TextChanged += text => { group.Name = string.IsNullOrWhiteSpace(text) ? $"Route {_selected + 1}" : text.Trim(); Changed(); };
-        nameRow.AddChild(name);
-        var enabled = Ui.Button(group.Enabled ? "Shown" : "Hidden", "Enabled", () => { group.Enabled = !group.Enabled; Changed(); BuildEditor(); }, 84);
-        enabled.ToggleMode = true;
-        enabled.SetPressedNoSignal(group.Enabled);
-        nameRow.AddChild(enabled);
         _editorContent.AddChild(new HSeparator());
         var header = new HBoxContainer();
         header.AddThemeConstantOverride("separation", 6);
-        foreach (var (text, width) in new[] { ("", 22), ("Room", 128), ("Where", 144), ("Prefer", 100) })
+        foreach (var (text, width) in new[] { ("Room", 128), ("Where", 144), ("Prefer", 100) })
         {
             var label = Ui.Text(text, 18);
             label.CustomMinimumSize = new Vector2(width, 0);
@@ -255,12 +224,6 @@ internal partial class RouterControl : Control
         scroll.AddChild(rules);
         _editorContent.AddChild(scroll);
         for (int i = 0; i < group.Rules.Count; i++) rules.AddChild(RuleRow(group, i));
-        if (group.Rules.Count == 0)
-        {
-            var empty = Ui.Text("Add a priority to draw this route.", 18);
-            empty.CustomMinimumSize = new Vector2(0, 38);
-            rules.AddChild(empty);
-        }
         var footer = new HBoxContainer();
         footer.AddThemeConstantOverride("separation", 8);
         _editorContent.AddChild(footer);
@@ -271,9 +234,6 @@ internal partial class RouterControl : Control
         }, 136);
         add.Disabled = group.Rules.Count >= Settings.MaxRules;
         footer.AddChild(add);
-        footer.AddChild(new Control { SizeFlagsHorizontal = SizeFlags.ExpandFill, MouseFilter = MouseFilterEnum.Ignore });
-        var hint = Ui.Text("Top priority first", 16);
-        footer.AddChild(hint);
         _editor.ResetSize();
     }
 
@@ -281,10 +241,6 @@ internal partial class RouterControl : Control
     {
         var row = new HBoxContainer { Name = "Rule" + index };
         row.AddThemeConstantOverride("separation", 6);
-        var number = Ui.Text((index + 1).ToString(), 18);
-        number.CustomMinimumSize = new Vector2(22, 0);
-        number.HorizontalAlignment = HorizontalAlignment.Center;
-        row.AddChild(number);
         var rule = group.Rules[index];
         var rooms = new[] { Room.Monster, Room.Elite, Room.RestSite, Room.Shop, Room.Unknown, Room.Treasure };
         var room = Select("Room", rooms.Select(Ui.RoomName).ToArray(), Array.IndexOf(rooms, rule.Room), 128,

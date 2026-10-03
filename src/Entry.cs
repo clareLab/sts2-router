@@ -17,7 +17,7 @@ public static class Entry
 #if ROUTER_SELFTEST
             SelfTests.Initialize();
 #endif
-            GD.Print("[router] Loaded 0.1.0");
+            GD.Print("[router] Loaded 0.1.1");
         }
         catch (Exception error)
         {
