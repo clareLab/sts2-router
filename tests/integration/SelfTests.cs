@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Godot;
+using MegaCrit.Sts2.Core.Assets;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Models.Characters;
@@ -18,6 +19,8 @@ internal static class SelfTests
     internal static void Initialize()
     {
         if (!OS.GetCmdlineArgs().Contains("--router-selftest")) return;
+        if (!File.Exists(ProjectSettings.GlobalizePath("user://.router-test-sandbox"))) throw new InvalidOperationException("An isolated test sandbox is required.");
+        PreloadManager.Enabled = false;
         ((SceneTree)Engine.GetMainLoop()).ProcessFrame += Start;
     }
 
@@ -33,10 +36,11 @@ internal static class SelfTests
         string? error = null;
         try
         {
-            if (!File.Exists(ProjectSettings.GlobalizePath("user://.router-test-sandbox"))) throw new InvalidOperationException("An isolated test sandbox is required.");
             string settingsPath = ProjectSettings.GlobalizePath("user://router/settings.json");
             if (File.Exists(settingsPath)) File.Delete(settingsPath);
+            await NGame.Instance!.GameStartupComplete;
             await Frames(3);
+            while (NGame.Instance.Transition.InTransition) await Frames(1);
             SaveManager.Instance.SetFtuesEnabled(false);
             SaveManager.Instance.PrefsSave.FastMode = FastModeType.Instant;
             SaveManager.Instance.Progress.GetOrCreateCharacterStats(ModelDb.Character<Ironclad>().Id).TotalLosses = 2;
@@ -56,9 +60,10 @@ internal static class SelfTests
             var before = Graph(run.Map);
             var snapshot = MapSnapshot.Capture(run);
             Check(snapshot.Nodes.Count > 20 && snapshot.Starts.Length > 0, "native map graph captured");
+            Check(snapshot.Nodes.All(pair => pair.Value.Floor == snapshot.Coordinates[pair.Key].row), "average uses the native act floor for every node");
             foreach (var group in router.Configuration.Groups.Take(2))
             {
-                var plan = Planner.Solve(snapshot.Nodes, snapshot.Starts, snapshot.Goals, group.Rules, snapshot.AfterChest);
+                var plan = Planner.Solve(snapshot.Nodes, snapshot.Starts, snapshot.Goals, group.Rules);
                 Check(plan.Nodes.Count >= 10 && plan.Edges.Count >= 9, "preset reaches the boss");
             }
             Check(Descendants(router).OfType<Button>().Where(b => b.Name.ToString().StartsWith("Toggle", StringComparison.Ordinal)).All(b => b.Text.Length == 0), "route switches contain only colours");
@@ -105,17 +110,35 @@ internal static class SelfTests
             Check(router.Configuration.Groups[0].Rules[1] == first, "priority order changes through native buttons");
             var up = router.Editor.FindChild("Rule1", true, false)!.GetNode<Button>("Up");
             await Click(up);
-            var option = router.Editor.FindChild("Rule0", true, false)!.GetNode<OptionButton>("Where");
+            var option = router.Editor.FindChild("Rule0", true, false)!.GetNode<OptionButton>("Measure");
             await Click(option);
             Check(option.GetPopup().Visible, "native dropdown opens");
             await Screenshot("options");
             option.GetPopup().Hide();
-            option.Select(2);
-            option.EmitSignal(OptionButton.SignalName.ItemSelected, 2L);
-            Check(router.Configuration.Groups[0].Rules[0].Segment == Segment.AfterChest, "scope edit updates the plan");
-            Check(option.Text.Length == 0 && option.TooltipText == "After chest", "selection updates the icon and hover description");
+            option.Select(1);
+            option.EmitSignal(OptionButton.SignalName.ItemSelected, 1L);
+            await Frames(4);
+            Check(router.Configuration.Groups[0].Rules[0].Measure == Measure.AverageFloor, "average floor selection updates the plan");
+            option = router.Editor.FindChild("Rule0", true, false)!.GetNode<OptionButton>("Measure");
+            var prefer = router.Editor.FindChild("Rule0", true, false)!.GetNode<OptionButton>("Prefer");
+            Check(option.Text.Length == 0 && option.TooltipText == "Average floor", "selection updates the icon and hover description");
+            Check(prefer.ItemCount == 2 && prefer.GetItemText(1) == "Lower average floor", "average exposes only two valid directions");
+            Check(prefer.GetPopup().GetItemTooltip(0).Contains("none rank last", StringComparison.Ordinal), "average explains missing rooms on hover");
+            prefer.Select(1);
+            prefer.EmitSignal(OptionButton.SignalName.ItemSelected, 1L);
+            Check(router.Configuration.Groups[0].Rules[0].Preference == Preference.Fewest, "lower average floor is selectable");
             option.Select(0);
             option.EmitSignal(OptionButton.SignalName.ItemSelected, 0L);
+            await Frames(4);
+            prefer = router.Editor.FindChild("Rule0", true, false)!.GetNode<OptionButton>("Prefer");
+            Check(prefer.ItemCount == 4, "room count restores presence and absence choices");
+            prefer.Select(3);
+            prefer.EmitSignal(OptionButton.SignalName.ItemSelected, 3L);
+            option = router.Editor.FindChild("Rule0", true, false)!.GetNode<OptionButton>("Measure");
+            option.Select(1);
+            option.EmitSignal(OptionButton.SignalName.ItemSelected, 1L);
+            await Frames(4);
+            Check(router.Configuration.Groups[0].Rules[0] == new Rule(Room.Elite, Measure.AverageFloor, Preference.Fewest), "switching an absence rule to average keeps a valid preference");
             var third = Descendants(router).OfType<Button>().Single(b => b.Name == "Toggle2");
             await Click(third);
             Check(!router.Configuration.Groups[2].Enabled, "choosing a colour while editing leaves its visibility unchanged");
@@ -154,8 +177,8 @@ internal static class SelfTests
             run.AddVisitedMapCoord(point.coord);
             await Planned(router, plans);
             var moved = MapSnapshot.Capture(run);
-            Check(moved.AfterChest && moved.Current != snapshot.Current, "room progress updates chest phase and origin");
-            var future = Planner.Solve(moved.Nodes, moved.Starts, moved.Goals, router.Configuration.Groups[1].Rules, moved.AfterChest);
+            Check(moved.Current != snapshot.Current, "room progress updates the planning origin");
+            var future = Planner.Solve(moved.Nodes, moved.Starts, moved.Goals, router.Configuration.Groups[1].Rules);
             Check(!future.Nodes.Contains(moved.Current!.Value), "current room is excluded from future scoring");
             Check(future.Nodes.All(id => moved.Coordinates[id].row > moved.Coordinates[moved.Current.Value].row), "route contains only future rooms");
             plans = router.CompletedPlans;
@@ -170,8 +193,8 @@ internal static class SelfTests
                 await Frames(4);
                 await Planned(router, plans);
                 var nextAct = MapSnapshot.Capture(run);
-                var route = Planner.Solve(nextAct.Nodes, nextAct.Starts, nextAct.Goals, router.Configuration.Groups[0].Rules, nextAct.AfterChest);
-                Check(!nextAct.AfterChest && route.Nodes.IsSupersetOf(nextAct.Goals), $"act {act + 1} starts afresh and reaches its final boss");
+                var route = Planner.Solve(nextAct.Nodes, nextAct.Starts, nextAct.Goals, router.Configuration.Groups[0].Rules);
+                Check(route.Nodes.IsSupersetOf(nextAct.Goals), $"act {act + 1} starts afresh and reaches its final boss");
                 if (act == 2) Check(run.Map.SecondBossMapPoint != null && route.Nodes.Count(id => nextAct.Nodes[id].Room == Room.Boss) == 2, "A10 route includes both bosses");
             }
             Check(SaveManager.Instance.PrefsSave.FastMode == FastModeType.Instant, "planning preserves game speed");
@@ -194,7 +217,7 @@ internal static class SelfTests
         var paths = RouteTint.Paths(screen);
         var native = paths.Values.SelectMany(path => path).Distinct().ToDictionary(tick => tick,
             tick => (tick.Modulate, tick.Texture, Transform: tick.GetTransform(), tick.Size, tick.FlipH, tick.FlipV));
-        var plan = Planner.Solve(map.Nodes, map.Starts, map.Goals, rules, map.AfterChest);
+        var plan = Planner.Solve(map.Nodes, map.Starts, map.Goals, rules);
         var edges = plan.Edges.Select(edge => (map.Coordinates[edge.From], map.Coordinates[edge.To])).ToHashSet();
         if (map.Current is { } current)
             foreach (int start in map.Starts.Where(plan.Nodes.Contains)) edges.Add((map.Coordinates[current], map.Coordinates[start]));

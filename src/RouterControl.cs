@@ -120,7 +120,7 @@ internal partial class RouterControl : Control
         _tint.Clear();
         var groups = _settings.Groups.Select((group, index) => (index, group.Enabled, Rules: group.Rules.ToArray())).Where(group => group.Enabled && group.Rules.Length > 0).ToArray();
         _planning = Task.Run(() => groups.Select(group => (group.index,
-            Planner.Solve(snapshot.Nodes, snapshot.Starts, snapshot.Goals, group.Rules, snapshot.AfterChest, token))).ToArray(), token);
+            Planner.Solve(snapshot.Nodes, snapshot.Starts, snapshot.Goals, group.Rules, token))).ToArray(), token);
     }
 
     private void CleanUp()
@@ -232,7 +232,7 @@ internal partial class RouterControl : Control
         for (int i = 0; i < group.Rules.Count; i++) rules.AddChild(RuleRow(group, i));
         var add = Ui.Icon(Ui.CloseIcon, "Add priority", "AddPriority", () =>
         {
-            group.Rules.Add(new Rule(Room.RestSite, Segment.WholeAct, Preference.Most));
+            group.Rules.Add(new Rule(Room.RestSite, Measure.Count, Preference.Most));
             Changed(); BuildEditor();
         }, Mathf.Pi / 4);
         Ui.Disable(add, group.Rules.Count >= Settings.MaxRules);
@@ -265,12 +265,28 @@ internal partial class RouterControl : Control
             room.GetPopup().SetItemIconMaxWidth(i, 22);
         }
         row.AddChild(room);
-        row.AddChild(Select("Where", ["Whole act", "Before chest", "After chest"], (int)rule.Segment,
-            value => { group.Rules[index] = group.Rules[index] with { Segment = (Segment)value }; Changed(); },
-            (button, value) => Ui.ChoiceGlyph(button, value == 0 ? Ui.Texture(Ui.MapIcon) : Ui.RoomIcon(Room.Treasure), direction: value == 0 ? 0 : value == 1 ? -1 : 1)));
-        row.AddChild(Select("Prefer", ["Most", "Fewest", "At least one", "None"], (int)rule.Preference,
+        bool average = rule.Measure == Measure.AverageFloor;
+        row.AddChild(Select("Measure", ["Room count", "Average floor"], (int)rule.Measure,
+            value =>
+            {
+                var current = group.Rules[index];
+                group.Rules[index] = current with
+                {
+                    Measure = (Measure)value,
+                    Preference = value == (int)Measure.AverageFloor && current.Preference is Preference.Present or Preference.Absent
+                        ? current.Preference == Preference.Present ? Preference.Most : Preference.Fewest : current.Preference
+                };
+                Changed(); BuildEditor();
+            },
+            (button, value) => Ui.ChoiceGlyph(button, Ui.Texture(value == 0 ? Ui.CountIcon : Ui.FloorIcon))));
+        string[] preferences = average ? ["Higher average floor", "Lower average floor"] : ["Most", "Fewest", "At least one", "None"];
+        var prefer = Select("Prefer", preferences, (int)rule.Preference,
             value => { group.Rules[index] = group.Rules[index] with { Preference = (Preference)value }; Changed(); },
-            (button, value) => Ui.ChoiceGlyph(button, Ui.Texture(value < 2 ? Ui.SortIcon : value == 2 ? Ui.CheckIcon : Ui.CloseIcon), flip: value == 1)));
+            (button, value) => Ui.ChoiceGlyph(button, Ui.Texture(value < 2 ? Ui.SortIcon : value == 2 ? Ui.CheckIcon : Ui.CloseIcon), flip: value == 1));
+        if (average)
+            for (int i = 0; i < preferences.Length; i++)
+                prefer.GetPopup().SetItemTooltip(i, "Routes with none rank last. If all have none, the next priority decides.");
+        row.AddChild(prefer);
         var up = Ui.Icon(Ui.LeftIcon, "Move up", "Up", () => Move(group, index, -1), Mathf.Pi / 2, padding: 8);
         Ui.Disable(up, index == 0);
         row.AddChild(up);

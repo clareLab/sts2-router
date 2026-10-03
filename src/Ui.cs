@@ -19,7 +19,8 @@ internal static class Ui
     internal const string LeftIcon = "res://images/atlases/ui_atlas.sprites/settings_tiny_left_arrow.tres";
     internal const string RightIcon = "res://images/atlases/ui_atlas.sprites/settings_tiny_right_arrow.tres";
     internal const string CheckIcon = "res://images/atlases/ui_atlas.sprites/checkbox_ticked.tres";
-    internal const string MapIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_map.tres";
+    internal const string FloorIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_floor.tres";
+    internal const string CountIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_deck.tres";
     internal const string SortIcon = "res://images/atlases/ui_atlas.sprites/sort_descending.tres";
 
     internal static StyleBoxFlat Surface(string background, string border, int padding = ContentInset) => new()
@@ -109,7 +110,7 @@ internal static class Ui
         _ => "unknown"
     }) + ".tres");
 
-    internal static void ChoiceGlyph(OptionButton button, Texture2D? texture, bool flip = false, int direction = 0)
+    internal static void ChoiceGlyph(OptionButton button, Texture2D? texture, bool flip = false)
     {
         if (button.GetNodeOrNull<Control>("Glyph") is { } previous)
         {
@@ -138,9 +139,7 @@ internal static class Ui
             };
             row.AddChild(icon);
         }
-        if (direction < 0) Add(Texture(LeftIcon), 14);
-        Add(texture, direction == 0 ? 32 : 28, flip);
-        if (direction > 0) Add(Texture(RightIcon), 14);
+        Add(texture, 32, flip);
     }
 
     internal static MarginContainer Padding(Control parent, int padding)
