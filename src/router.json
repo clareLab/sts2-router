@@ -1,0 +1,12 @@
+{
+  "id": "router",
+  "name": "Router",
+  "author": "clareLab",
+  "description": "Map routes with custom priorities.",
+  "version": "0.1.0",
+  "min_game_version": "0.111.0",
+  "has_dll": true,
+  "has_pck": false,
+  "affects_gameplay": false,
+  "dependencies": []
+}
