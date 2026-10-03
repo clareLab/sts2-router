@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Godot;
 using MegaCrit.Sts2.Core.Map;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Runs;
 
@@ -13,6 +14,8 @@ internal partial class RouterControl : Control
     private Settings _settings = Settings.Defaults();
     private PanelContainer _toolbar = null!;
     private PanelContainer _editor = null!;
+    private PanelContainer _actions = null!;
+    private HBoxContainer _actionButtons = null!;
     private Button _editButton = null!;
     private VBoxContainer _editorContent = null!;
     private readonly List<Button> _toggles = [];
@@ -49,12 +52,17 @@ internal partial class RouterControl : Control
                 GD.PrintErr("[router] Using default priorities: " + error.Message);
             }
             BuildToolbar();
+            _actions = new PanelContainer { Name = "EditorActions", Theme = Ui.Theme, Visible = false };
+            AddChild(_actions);
+            _actionButtons = new HBoxContainer();
+            _actionButtons.AddThemeConstantOverride("separation", Ui.Gap);
+            Ui.Padding(_actions, 4).AddChild(_actionButtons);
             _editor = new PanelContainer { Name = "Editor", Theme = Ui.Theme, Visible = false, CustomMinimumSize = new Vector2(Ui.EditorWidth, 0) };
             AddChild(_editor);
             _editor.VisibilityChanged += UpdateSwatches;
             _editorContent = new VBoxContainer();
             _editorContent.AddThemeConstantOverride("separation", 8);
-            Ui.Padding(_editor, 6).AddChild(_editorContent);
+            Ui.Padding(_editor, 4).AddChild(_editorContent);
             BuildEditor();
             UpdateSwatches();
         }
@@ -68,9 +76,9 @@ internal partial class RouterControl : Control
         if (_failed) return;
         try
         {
-            bool open = _screen.IsVisibleInTree() && _screen.IsOpen && !_screen.IsTraveling;
+            bool open = _screen.IsVisibleInTree() && _screen.IsOpen && !_screen.IsTraveling && NGame.Instance?.Transition.InTransition != true;
             _toolbar.Visible = open;
-            if (!open) { _editor.Hide(); if (_wasOpen) _tint.Clear(); _wasOpen = false; return; }
+            if (!open) { _editor.Hide(); _actions.Hide(); if (_wasOpen) _tint.Clear(); _wasOpen = false; return; }
             var run = RunManager.Instance.DebugOnlyGetState();
             if (run == null) return;
             if (!_wasOpen || !ReferenceEquals(_lastMap, run.Map) || !ReferenceEquals(_lastRun, run) || _lastCoord != run.CurrentMapCoord) _dirty = true;
@@ -94,11 +102,13 @@ internal partial class RouterControl : Control
                 else if (planning.Exception is { } error) throw error.GetBaseException();
             }
             var size = Size;
-            float available = Math.Max(1, size.X - 32);
-            float scale = Math.Min(1, Math.Min(available / Ui.EditorWidth, Math.Max(0.5f, (size.Y - 180) / 560)));
-            _toolbar.Position = new Vector2(24, 144);
+            float scale = Math.Min(1, Math.Max(0.1f, (size.X - 32) / Ui.EditorWidth));
+            _toolbar.Position = new Vector2(16, 148);
+            _toolbar.Scale = new Vector2(scale, scale);
+            _actions.Scale = new Vector2(scale, scale);
+            _actions.Position = _toolbar.Position + new Vector2((_toolbar.Size.X + Ui.Gap) * scale, 0);
             _editor.Scale = new Vector2(scale, scale);
-            _editor.Position = _toolbar.Position + new Vector2(0, _toolbar.Size.Y + 8);
+            _editor.Position = _toolbar.Position + new Vector2(0, (_toolbar.Size.Y + 6) * scale);
         }
         catch (Exception error) { Fail(error); }
     }
@@ -151,6 +161,7 @@ internal partial class RouterControl : Control
     private void UpdateSwatches()
     {
         bool editing = _editor.Visible;
+        _actions.Visible = editing;
         _editButton.SetPressedNoSignal(editing);
         for (int i = 0; i < _toggles.Count; i++)
         {
@@ -161,11 +172,11 @@ internal partial class RouterControl : Control
 
     private void BuildToolbar()
     {
-        _toolbar = new PanelContainer { Name = "Toolbar", Theme = Ui.Theme };
+        _toolbar = new PanelContainer { Name = "Toolbar", Theme = Ui.Theme, Visible = false };
         AddChild(_toolbar);
         var row = new HBoxContainer();
         row.AddThemeConstantOverride("separation", Ui.Gap);
-        Ui.Padding(_toolbar, 6).AddChild(row);
+        Ui.Padding(_toolbar, 4).AddChild(row);
         for (int i = 0; i < 5; i++)
         {
             int index = i;
@@ -195,23 +206,18 @@ internal partial class RouterControl : Control
     {
         var button = Ui.Icon(Ui.Characters[index].IconTexture, "", name, action);
         var color = Ui.RouteColors[index];
-        button.AddThemeStyleboxOverride("normal", Ui.ButtonSurface("23323a", color.Darkened(0.15f).ToHtml()));
-        button.AddThemeStyleboxOverride("hover", Ui.ButtonSurface(color.Darkened(0.3f).ToHtml(), "f2d68d"));
-        button.AddThemeStyleboxOverride("pressed", Ui.ButtonSurface(color.Darkened(0.35f).ToHtml(), color.Lightened(0.65f).ToHtml()));
-        button.AddThemeStyleboxOverride("hover_pressed", Ui.ButtonSurface(color.Darkened(0.15f).ToHtml(), "fff2cd"));
+        button.AddThemeStyleboxOverride("normal", Ui.ButtonSurface(new Color("2e4351").Lerp(color, 0.12f).ToHtml(), "526c75"));
+        button.AddThemeStyleboxOverride("hover", Ui.ButtonSurface(new Color("526575").Lerp(color, 0.22f).ToHtml(), "f2d68d"));
+        button.AddThemeStyleboxOverride("pressed", Ui.ButtonSurface(new Color("23323a").Lerp(color, 0.42f).ToHtml(), color.Lightened(0.4f).ToHtml()));
+        button.AddThemeStyleboxOverride("hover_pressed", Ui.ButtonSurface(new Color("526575").Lerp(color, 0.32f).ToHtml(), "fff2cd"));
         return button;
     }
 
     private void BuildEditor()
     {
         foreach (var child in _editorContent.GetChildren()) { _editorContent.RemoveChild(child); child.QueueFree(); }
+        foreach (var child in _actionButtons.GetChildren()) { _actionButtons.RemoveChild(child); child.QueueFree(); }
         var group = _settings.Groups[_selected];
-        var header = new HBoxContainer();
-        header.AddThemeConstantOverride("separation", Ui.Gap);
-        header.AddChild(Ui.Heading("Room", Ui.RoomWidth));
-        header.AddChild(Ui.Heading("Where", Ui.SegmentWidth));
-        header.AddChild(Ui.Heading("Prefer", Ui.PreferenceWidth));
-        _editorContent.AddChild(header);
         var scroll = new ScrollContainer
         {
             Name = "Priorities",
@@ -223,16 +229,13 @@ internal partial class RouterControl : Control
         scroll.AddChild(rules);
         _editorContent.AddChild(scroll);
         for (int i = 0; i < group.Rules.Count; i++) rules.AddChild(RuleRow(group, i));
-        var footer = new HBoxContainer();
-        footer.AddThemeConstantOverride("separation", 8);
-        _editorContent.AddChild(footer);
         var add = Ui.Icon(Ui.CloseIcon, "Add priority", "AddPriority", () =>
         {
             group.Rules.Add(new Rule(Room.RestSite, Segment.WholeAct, Preference.Most));
             Changed(); BuildEditor();
         }, Mathf.Pi / 4);
         Ui.Disable(add, group.Rules.Count >= Settings.MaxRules);
-        footer.AddChild(add);
+        _actionButtons.AddChild(add);
         var enabled = Ui.Icon("res://images/atlases/ui_atlas.sprites/checkbox_" + (group.Enabled ? "ticked" : "unticked") + ".tres",
             group.Enabled ? "Hide route" : "Show route", "Enabled", () =>
             {
@@ -240,7 +243,9 @@ internal partial class RouterControl : Control
                 Changed();
                 BuildEditor();
             });
-        footer.AddChild(enabled);
+        enabled.ToggleMode = true;
+        enabled.SetPressedNoSignal(group.Enabled);
+        _actionButtons.AddChild(enabled);
         _editor.ResetSize();
     }
 
@@ -250,35 +255,28 @@ internal partial class RouterControl : Control
         row.AddThemeConstantOverride("separation", Ui.Gap);
         var rule = group.Rules[index];
         var rooms = new[] { Room.Monster, Room.Elite, Room.RestSite, Room.Shop, Room.Unknown, Room.Treasure };
-        var room = Select("Room", rooms.Select(Ui.RoomName).ToArray(), Array.IndexOf(rooms, rule.Room), Ui.RoomWidth,
-            value => { group.Rules[index] = group.Rules[index] with { Room = rooms[value] }; Changed(); });
-        room.ExpandIcon = true;
-        room.IconAlignment = HorizontalAlignment.Left;
-        room.AddThemeConstantOverride("icon_max_width", 22);
+        var room = Select("Room", rooms.Select(Ui.RoomName).ToArray(), Array.IndexOf(rooms, rule.Room),
+            value => { group.Rules[index] = group.Rules[index] with { Room = rooms[value] }; Changed(); },
+            (button, value) => Ui.ChoiceGlyph(button, Ui.RoomIcon(rooms[value])));
         for (int i = 0; i < rooms.Length; i++)
         {
-            room.SetItemIcon(i, Ui.RoomIcon(rooms[i]));
+            room.GetPopup().SetItemIcon(i, Ui.RoomIcon(rooms[i]));
             room.GetPopup().SetItemIconMaxWidth(i, 22);
         }
-        void UpdateRoomIcon()
-        {
-            room.Text = "";
-            room.TooltipText = Ui.RoomName(rooms[room.Selected]);
-        }
-        room.ItemSelected += _ => UpdateRoomIcon();
-        UpdateRoomIcon();
         row.AddChild(room);
-        row.AddChild(Select("Where", ["Whole act", "Before chest", "After chest"], (int)rule.Segment, Ui.SegmentWidth,
-            value => { group.Rules[index] = group.Rules[index] with { Segment = (Segment)value }; Changed(); }));
-        row.AddChild(Select("Prefer", ["Most", "Fewest", "Have", "Avoid"], (int)rule.Preference, Ui.PreferenceWidth,
-            value => { group.Rules[index] = group.Rules[index] with { Preference = (Preference)value }; Changed(); }));
-        var up = Ui.Icon("res://images/atlases/ui_atlas.sprites/settings_tiny_left_arrow.tres", "Move up", "Up", () => Move(group, index, -1), Mathf.Pi / 2);
+        row.AddChild(Select("Where", ["Whole act", "Before chest", "After chest"], (int)rule.Segment,
+            value => { group.Rules[index] = group.Rules[index] with { Segment = (Segment)value }; Changed(); },
+            (button, value) => Ui.ChoiceGlyph(button, value == 0 ? Ui.Texture(Ui.MapIcon) : Ui.RoomIcon(Room.Treasure), direction: value == 0 ? 0 : value == 1 ? -1 : 1)));
+        row.AddChild(Select("Prefer", ["Most", "Fewest", "At least one", "None"], (int)rule.Preference,
+            value => { group.Rules[index] = group.Rules[index] with { Preference = (Preference)value }; Changed(); },
+            (button, value) => Ui.ChoiceGlyph(button, Ui.Texture(value < 2 ? Ui.SortIcon : value == 2 ? Ui.CheckIcon : Ui.CloseIcon), flip: value == 1)));
+        var up = Ui.Icon(Ui.LeftIcon, "Move up", "Up", () => Move(group, index, -1), Mathf.Pi / 2, padding: 12);
         Ui.Disable(up, index == 0);
         row.AddChild(up);
-        var down = Ui.Icon("res://images/atlases/ui_atlas.sprites/settings_tiny_right_arrow.tres", "Move down", "Down", () => Move(group, index, 1), Mathf.Pi / 2);
+        var down = Ui.Icon(Ui.RightIcon, "Move down", "Down", () => Move(group, index, 1), Mathf.Pi / 2, padding: 12);
         Ui.Disable(down, index == group.Rules.Count - 1);
         row.AddChild(down);
-        var remove = Ui.Icon(Ui.CloseIcon, "Remove priority", "Remove", () => { group.Rules.RemoveAt(index); Changed(); BuildEditor(); });
+        var remove = Ui.Icon(Ui.CloseIcon, "Remove priority", "Remove", () => { group.Rules.RemoveAt(index); Changed(); BuildEditor(); }, padding: 10);
         row.AddChild(remove);
         return row;
     }
@@ -289,21 +287,29 @@ internal partial class RouterControl : Control
         Changed(); BuildEditor();
     }
 
-    private static OptionButton Select(string name, string[] items, int selected, float width, Action<int> changed)
+    private static OptionButton Select(string name, string[] items, int selected, Action<int> changed, Action<OptionButton, int> glyph)
     {
         var select = new OptionButton
         {
             Name = name,
             Theme = Ui.Theme,
-            CustomMinimumSize = new Vector2(width, Ui.ControlSize),
+            CustomMinimumSize = new Vector2(Ui.ChoiceWidth, Ui.ControlSize),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
             FitToLongestItem = false,
+            FocusMode = FocusModeEnum.None,
             Alignment = HorizontalAlignment.Left,
             MouseDefaultCursorShape = CursorShape.PointingHand
         };
         select.AddThemeFontSizeOverride("font_size", 18);
         foreach (string item in items) select.AddItem(item);
         select.Selected = Math.Max(0, selected);
-        select.ItemSelected += value => changed((int)value);
+        void Refresh()
+        {
+            select.TooltipText = items[select.Selected];
+            glyph(select, select.Selected);
+        }
+        select.ItemSelected += value => { changed((int)value); Refresh(); };
+        Refresh();
         return select;
     }
 }

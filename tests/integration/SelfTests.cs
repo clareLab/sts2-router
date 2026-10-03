@@ -41,6 +41,7 @@ internal static class SelfTests
             SaveManager.Instance.PrefsSave.FastMode = FastModeType.Instant;
             var run = await NGame.Instance!.StartNewSingleplayerRun(ModelDb.Character<Ironclad>(), true,
                 ActModel.GetDefaultList(), [], "ROUTER-PREVIEW-001", GameMode.Standard, 10);
+            await RunManager.Instance.EnterMapCoord(run.Map.StartingMapPoint.coord);
             var screen = NMapScreen.Instance!;
             screen.Open(true);
             var tree = (SceneTree)Engine.GetMainLoop();
@@ -88,6 +89,7 @@ internal static class SelfTests
             Check(router.Editor.Visible, "clicking outside keeps priorities open");
             await Click(edit);
             Check(!router.Editor.Visible && !edit.ButtonPressed, "settings button closes the editor");
+            Check(!router.GetNode<Control>("EditorActions").Visible, "editor actions hide with the editor");
             await Click(edit);
             Check(router.Editor.Visible && edit.ButtonPressed, "settings button reopens the editor");
             await Screenshot("editor");
@@ -104,25 +106,40 @@ internal static class SelfTests
             option.Select(2);
             option.EmitSignal(OptionButton.SignalName.ItemSelected, 2L);
             Check(router.Configuration.Groups[0].Rules[0].Segment == Segment.AfterChest, "scope edit updates the plan");
+            Check(option.Text.Length == 0 && option.TooltipText == "After chest", "selection updates the icon and hover description");
             option.Select(0);
             option.EmitSignal(OptionButton.SignalName.ItemSelected, 0L);
             var third = Descendants(router).OfType<Button>().Single(b => b.Name == "Toggle2");
             await Click(third);
             Check(!router.Configuration.Groups[2].Enabled, "choosing a colour while editing leaves its visibility unchanged");
-            await Click(Descendants(router.Editor).OfType<Button>().Single(b => b.Name == "Enabled"));
+            await Click(Descendants(router).OfType<Button>().Single(b => b.Name == "Enabled"));
             Check(router.Configuration.Groups[2].Enabled, "route visibility remains editable");
-            await Click(Descendants(router.Editor).OfType<Button>().Single(b => b.Name == "Enabled"));
-            await Click(Descendants(router.Editor).OfType<Button>().Single(b => b.Name == "AddPriority"));
+            await Click(Descendants(router).OfType<Button>().Single(b => b.Name == "Enabled"));
+            await Click(Descendants(router).OfType<Button>().Single(b => b.Name == "AddPriority"));
             Check(router.Configuration.Groups[2].Rules.Count == 1, "empty group accepts a new priority");
             await Click(router.Editor.FindChild("Rule0", true, false)!.GetNode<Button>("Remove"));
             Check(router.Configuration.Groups[2].Rules.Count == 0, "priority removal keeps an empty group valid");
+            for (int i = 0; i < Settings.MaxRules; i++) await Click(Descendants(router).OfType<Button>().Single(b => b.Name == "AddPriority"));
+            var priorities = router.Editor.FindChild("Priorities", true, false) as ScrollContainer;
+            Check(priorities!.GetVScrollBar().Visible && router.Editor.Size.Y < 300, "long rule lists scroll within a compact panel");
+            Check(Descendants(router).OfType<Button>().Single(b => b.Name == "AddPriority").Disabled, "adding rules stops at the limit");
+            Check(Descendants(router.Editor).OfType<OptionButton>().All(b => b.Size.X >= Ui.ChoiceWidth), "scrolling leaves room for every selector icon");
+            priorities.ScrollVertical = (int)priorities.GetVScrollBar().MaxValue;
+            await Frames(3);
+            await Screenshot("scroll");
             var saved = Settings.Parse(File.ReadAllText(ProjectSettings.GlobalizePath("user://router/settings.json")));
             Check(saved.Groups[0].Rules.SequenceEqual(router.Configuration.Groups[0].Rules), "UI edits persist");
             Check(Graph(run.Map) == before, "planning and settings do not mutate the map");
             screen.Close(false);
             await Frames(3);
             Check(!router.IsVisibleInTree(), "overlay hides with the map");
+            Check(!router.GetNode<Control>("Toolbar").Visible && !router.GetNode<Control>("EditorActions").Visible, "all router controls hide outside the map");
             screen.Open(true);
+            await Frames(3);
+            screen.IsTraveling = true;
+            await Frames(3);
+            Check(!router.GetNode<Control>("Toolbar").Visible, "toolbar hides during map travel");
+            screen.IsTraveling = false;
             await Frames(3);
             router.Editor.Hide();
             plans = router.CompletedPlans;
@@ -204,21 +221,30 @@ internal static class SelfTests
         var toolbar = router.GetNode<PanelContainer>("Toolbar");
         var toolbarButtons = Descendants(toolbar).OfType<Button>().ToArray();
         Check(toolbarButtons.All(b => b.Size.IsEqualApprox(new Vector2(Ui.ControlSize, Ui.ControlSize))), "toolbar buttons use equal square bounds");
+        Check(toolbar.Size.Y == 52, "toolbar matches the SLPP height");
+        Check(router.Editor.Size.X == Ui.EditorWidth && router.Editor.Size.X < 400, "settings use a compact fixed width");
+        var actions = router.GetNode<Control>("EditorActions");
+        Check(actions.Position.Y == toolbar.Position.Y && actions.Size.Y == toolbar.Size.Y, "editor actions align with the toolbar");
+        Check(Math.Abs(actions.GetGlobalRect().End.X - router.Editor.GetGlobalRect().End.X) < 1, "editor actions align with the panel right edge");
+        Check(Math.Abs(actions.Position.X - toolbar.GetRect().End.X - Ui.Gap) < 1, "editor actions sit beside the toolbar");
+        var companion = ((SceneTree)Engine.GetMainLoop()).Root.GetNodeOrNull<Control>("slpp/SlppToolbar");
+        if (companion != null)
+        {
+            Check(companion.IsVisibleInTree(), "SLPP is visible in the shared map preview");
+            Check(companion.Size.Y == toolbar.Size.Y, "both loaded mods share the same toolbar height");
+            Check(companion.GlobalPosition.X == toolbar.GlobalPosition.X && companion.GetGlobalRect().End.Y + 8 == toolbar.GlobalPosition.Y, "both loaded toolbars align without overlap");
+        }
         Check(Math.Abs(toolbarButtons[0].GlobalPosition.X - rows[0].GlobalPosition.X) < 1, "toolbar and editor share the same left inset");
         foreach (var row in rows)
         {
             var children = row.GetChildren().OfType<Control>().ToArray();
             Check(children.Zip(children.Skip(1), (a, b) => a.GetGlobalRect().End.X <= b.GetGlobalRect().Position.X + 1).All(v => v), row.Name + " columns do not overlap");
             Check(children.All(c => Math.Abs(c.Size.Y - Ui.ControlSize) < 1), row.Name + " controls share one height");
-            var room = row.GetNode<OptionButton>("Room");
-            Check(room.Icon != null && room.Text.Length == 0, row.Name + " uses a native room icon");
             foreach (var option in children.OfType<OptionButton>())
             {
-                var heading = router.Editor.FindChild(option.Name + "Heading", true, false)!.GetNode<Label>("Text");
-                float contentLeft = option.GlobalPosition.X + option.GetThemeStylebox("normal").ContentMarginLeft * router.Editor.Scale.X;
-                Check(Math.Abs(heading.GlobalPosition.X - contentLeft) < 1, row.Name + " " + option.Name + " heading aligns with its content");
-                float width = option.GetThemeFont("font").GetStringSize(option.Text, fontSize: option.GetThemeFontSize("font_size")).X;
-                Check(width + 22 < option.Size.X, row.Name + " " + option.Name + " label fits");
+                var glyph = option.GetNode<Control>("Glyph");
+                Check(option.Text.Length == 0 && option.TooltipText.Length > 0 && Descendants(glyph).OfType<TextureRect>().All(t => t.Texture != null), row.Name + " " + option.Name + " uses native icons and a hover description");
+                Check(glyph.GetCombinedMinimumSize().X <= glyph.Size.X && glyph.GetCombinedMinimumSize().Y <= glyph.Size.Y, row.Name + " " + option.Name + " icons fit");
             }
         }
     }

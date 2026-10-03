@@ -63,3 +63,4 @@ PY
 [[ "$game_status" == 0 ]] || exit "$game_status"
 cp "$sandbox_dir/userdata/SlayTheSpire2/router-map.png" artifacts/validation/map.png
 cp "$sandbox_dir/userdata/SlayTheSpire2/router-editor.png" artifacts/validation/editor.png
+cp "$sandbox_dir/userdata/SlayTheSpire2/router-scroll.png" artifacts/validation/scroll.png

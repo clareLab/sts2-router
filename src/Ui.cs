@@ -7,26 +7,20 @@ internal static class Ui
 {
     private static Theme? _theme;
     internal static Theme Theme => _theme ??= CreateTheme();
-    internal const int ControlSize = 36;
-    internal const int Gap = 6;
-    internal const int ContentInset = 8;
-    internal const int RoomWidth = 56;
-    internal const int SegmentWidth = 152;
-    internal const int PreferenceWidth = 104;
-    internal const int EditorWidth = 488;
+    internal const int ControlSize = 40;
+    internal const int Gap = 4;
+    internal const int ContentInset = 6;
+    internal const int ChoiceWidth = 64;
+    internal const int EditorWidth = 372;
     internal static readonly CharacterModel[] Characters = ModelDb.AllCharacters.ToArray();
-    internal static readonly Color[] RouteColors = Characters.Select(character => character.MapDrawingColor).ToArray();
+    internal static readonly Color[] RouteColors = [new("bd4746"), new("507b46"), new("ac772e"), new("965689"), new("447f9d")];
     internal const string SettingsIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres";
     internal const string CloseIcon = "res://images/atlases/compressed.sprites/back_button_x.tres";
-
-    internal static Label Text(string text, int size = 20) => new()
-    {
-        Text = text,
-        Theme = Theme,
-        LabelSettings = new LabelSettings { Font = Theme.DefaultFont, FontSize = size, FontColor = new Color("eee5cf") },
-        VerticalAlignment = VerticalAlignment.Center,
-        MouseFilter = Control.MouseFilterEnum.Ignore
-    };
+    internal const string LeftIcon = "res://images/atlases/ui_atlas.sprites/settings_tiny_left_arrow.tres";
+    internal const string RightIcon = "res://images/atlases/ui_atlas.sprites/settings_tiny_right_arrow.tres";
+    internal const string CheckIcon = "res://images/atlases/ui_atlas.sprites/checkbox_ticked.tres";
+    internal const string MapIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_map.tres";
+    internal const string SortIcon = "res://images/atlases/ui_atlas.sprites/sort_descending.tres";
 
     internal static StyleBoxFlat Surface(string background, string border, int padding = ContentInset) => new()
     {
@@ -70,16 +64,17 @@ internal static class Ui
             Text = text,
             Theme = Theme,
             CustomMinimumSize = new Vector2(width, ControlSize),
+            FocusMode = Control.FocusModeEnum.None,
             MouseDefaultCursorShape = Control.CursorShape.PointingHand
         };
         button.Pressed += action;
         return button;
     }
 
-    internal static Button Icon(string path, string tooltip, string name, Action action, float rotation = 0) =>
-        Icon(Texture(path), tooltip, name, action, rotation);
+    internal static Button Icon(string path, string tooltip, string name, Action action, float rotation = 0, int padding = ContentInset) =>
+        Icon(Texture(path), tooltip, name, action, rotation, padding);
 
-    internal static Button Icon(Texture2D? texture, string tooltip, string name, Action action, float rotation = 0)
+    internal static Button Icon(Texture2D? texture, string tooltip, string name, Action action, float rotation = 0, int padding = ContentInset)
     {
         var button = Button("", name, action);
         button.TooltipText = tooltip;
@@ -93,7 +88,7 @@ internal static class Ui
             Rotation = rotation
         };
         button.AddChild(icon);
-        icon.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, margin: ContentInset);
+        icon.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, margin: padding);
         icon.Resized += () => icon.PivotOffset = icon.Size * 0.5f;
         return button;
     }
@@ -114,14 +109,37 @@ internal static class Ui
         _ => "unknown"
     }) + ".tres");
 
-    internal static Control Heading(string text, int width)
+    internal static void ChoiceGlyph(OptionButton button, Texture2D? texture, bool flip = false, int direction = 0)
     {
-        var margin = new MarginContainer { Name = text + "Heading", CustomMinimumSize = new Vector2(width, 0), MouseFilter = Control.MouseFilterEnum.Ignore };
-        margin.AddThemeConstantOverride("margin_left", ContentInset);
-        var label = Text(text, 18);
-        label.Name = "Text";
-        margin.AddChild(label);
-        return margin;
+        if (button.GetNodeOrNull<Control>("Glyph") is { } previous)
+        {
+            button.RemoveChild(previous);
+            previous.QueueFree();
+        }
+        button.Icon = null;
+        button.Text = "";
+        var row = new HBoxContainer { Name = "Glyph", Alignment = BoxContainer.AlignmentMode.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
+        row.AddThemeConstantOverride("separation", 2);
+        button.AddChild(row);
+        row.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect, margin: ContentInset);
+        row.OffsetRight = -18;
+        void Add(Texture2D? image, int size, bool flipVertical = false)
+        {
+            var icon = new TextureRect
+            {
+                Texture = image,
+                CustomMinimumSize = new Vector2(size, size),
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                FlipV = flipVertical
+            };
+            row.AddChild(icon);
+        }
+        if (direction < 0) Add(Texture(LeftIcon), 10);
+        Add(texture, direction == 0 ? 26 : 22, flip);
+        if (direction > 0) Add(Texture(RightIcon), 10);
     }
 
     internal static MarginContainer Padding(Control parent, int padding)
@@ -143,9 +161,9 @@ internal static class Ui
     private static Theme CreateTheme()
     {
         var theme = new Theme { DefaultFontSize = 20, DefaultFont = GD.Load<Font>("res://themes/kreon_regular_shared.tres") };
-        var panel = Surface("1b2b35", "83918d", 6);
-        panel.ShadowColor = new Color("0b141c80");
-        panel.ShadowSize = 3;
+        var panel = Surface("1b2b35", "83918d", 2);
+        panel.ShadowColor = new Color("0b141c");
+        panel.ShadowSize = 2;
         panel.ShadowOffset = new Vector2(0, 2);
         theme.SetStylebox("panel", "PanelContainer", panel);
         theme.SetStylebox("panel", "PopupMenu", Surface("1b2b35", "83918d", 8));
