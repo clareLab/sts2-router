@@ -17,7 +17,7 @@ public static class Entry
 #if ROUTER_SELFTEST
             SelfTests.Initialize();
 #endif
-            GD.Print("[router] Loaded 0.1.5");
+            GD.Print($"[router] Loaded {typeof(Entry).Assembly.GetName().Version?.ToString(3)}");
         }
         catch (Exception error)
         {

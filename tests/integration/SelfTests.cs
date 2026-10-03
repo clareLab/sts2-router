@@ -42,7 +42,8 @@ internal static class SelfTests
             SaveManager.Instance.Progress.GetOrCreateCharacterStats(ModelDb.Character<Ironclad>().Id).TotalLosses = 2;
             var run = await NGame.Instance!.StartNewSingleplayerRun(ModelDb.Character<Ironclad>(), true,
                 ActModel.GetDefaultList(), [], "ROUTER-PREVIEW-001", GameMode.Standard, 10);
-            await RunManager.Instance.EnterMapCoord(run.Map.StartingMapPoint.coord);
+            if (((SceneTree)Engine.GetMainLoop()).Root.GetNodeOrNull("slpp") != null)
+                await RunManager.Instance.EnterMapCoord(run.Map.StartingMapPoint.coord);
             var screen = NMapScreen.Instance!;
             screen.Open(true);
             var tree = (SceneTree)Engine.GetMainLoop();
@@ -95,6 +96,9 @@ internal static class SelfTests
             await Click(edit);
             Check(router.Editor.Visible && edit.ButtonPressed, "settings button reopens the editor");
             await Screenshot("editor");
+            await Click(Descendants(router).OfType<Button>().Single(b => b.Name == "Toggle1"));
+            await Screenshot("steady");
+            await Click(toggle);
             var first = router.Configuration.Groups[0].Rules[0];
             var down = router.Editor.FindChild("Rule0", true, false)!.GetNode<Button>("Down");
             await Click(down);
@@ -104,6 +108,7 @@ internal static class SelfTests
             var option = router.Editor.FindChild("Rule0", true, false)!.GetNode<OptionButton>("Where");
             await Click(option);
             Check(option.GetPopup().Visible, "native dropdown opens");
+            await Screenshot("options");
             option.GetPopup().Hide();
             option.Select(2);
             option.EmitSignal(OptionButton.SignalName.ItemSelected, 2L);

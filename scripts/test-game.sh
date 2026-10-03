@@ -35,7 +35,7 @@ command -v Xvfb >/dev/null || { echo 'Xvfb is required.' >&2; exit 1; }
 mkdir -p artifacts/validation
 display_file="$sandbox_dir/display"
 : > "$display_file"
-Xvfb -displayfd 3 -screen 0 1280x720x24 -nolisten tcp 3> "$display_file" > artifacts/validation/display.log 2>&1 &
+Xvfb -displayfd 3 -screen 0 1920x1080x24 -nolisten tcp 3> "$display_file" > artifacts/validation/display.log 2>&1 &
 display_pid=$!
 trap 'kill "$display_pid" 2>/dev/null || true; wait "$display_pid" 2>/dev/null || true' EXIT
 for ((attempt=0; attempt<100; attempt++)); do
@@ -50,7 +50,7 @@ unset WAYLAND_DISPLAY
 runner=()
 if command -v steam-run >/dev/null; then runner=(steam-run); fi
 game_status=0
-LP_NUM_THREADS=4 XDG_DATA_HOME="$sandbox_dir/userdata" timeout --kill-after=10 300 "${runner[@]}" "$sandbox_dir/game/SlayTheSpire2" --audio-driver Dummy --force-steam=off --router-selftest --display-driver x11 --rendering-method gl_compatibility --rendering-driver opengl3 --windowed --resolution 1280x720 > artifacts/validation/game.log 2>&1 || game_status=$?
+LP_NUM_THREADS=4 XDG_DATA_HOME="$sandbox_dir/userdata" timeout --kill-after=10 300 "${runner[@]}" "$sandbox_dir/game/SlayTheSpire2" --audio-driver Dummy --force-steam=off --router-selftest --display-driver x11 --rendering-method gl_compatibility --rendering-driver opengl3 --windowed --resolution 1920x1080 > artifacts/validation/game.log 2>&1 || game_status=$?
 [[ -f "$sandbox_dir/userdata/SlayTheSpire2/router-selftest.json" ]] || { echo "Game test exited with status $game_status without a report." >&2; exit 1; }
 cp "$sandbox_dir/userdata/SlayTheSpire2/router-selftest.json" artifacts/validation/game.json
 python3 - <<'PY'
@@ -64,3 +64,5 @@ PY
 cp "$sandbox_dir/userdata/SlayTheSpire2/router-map.png" artifacts/validation/map.png
 cp "$sandbox_dir/userdata/SlayTheSpire2/router-editor.png" artifacts/validation/editor.png
 cp "$sandbox_dir/userdata/SlayTheSpire2/router-scroll.png" artifacts/validation/scroll.png
+cp "$sandbox_dir/userdata/SlayTheSpire2/router-steady.png" artifacts/validation/steady.png
+cp "$sandbox_dir/userdata/SlayTheSpire2/router-options.png" artifacts/validation/options.png
